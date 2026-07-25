@@ -1,27 +1,34 @@
 # Dad Championships
 
-A mobile web app for running a multi-sport championship between dads. One pitch,
-one sport at a time, one table that decides who buys the beer.
+A mobile web app for running a multi-sport championship across three
+generations. You pick the opponents, you set the times, and one table decides
+who buys the beer.
 
 Live: https://hvejsel.github.io/dad-championships/
 
 ## What it does
 
-1. Pick how many sports you are playing and name them.
-2. Pick how many dads are playing and name them.
-3. Choose **1 v 1** or **2 v 2**, and how points are awarded.
-4. The app builds the full fixture list — every sport finished before the next one starts.
-5. Enter the score after each match. The table updates itself.
+1. Add everyone playing — each one is a dad, a granddad or a kid.
+2. Add the sports. Each sport is set up on its own: singles or doubles, plus
+   the time you booked the court for.
+3. Pick who plays whom in each sport. Nobody has to play everyone.
+4. Enter the score after each match. The table updates itself.
+
+The match list is the home screen. Sports appear in the order of their booked
+time, so everybody can see what happens when, and the app tells you who is
+still without an opponent in each sport.
 
 ## Formats
 
-**1 v 1** — a full round robin per sport: every dad meets every other dad once.
-With 4 dads that is 6 matches per sport.
+Format is set per sport, not per championship — padel can be doubles on the
+same day darts is singles.
 
-**2 v 2** — americano style: partners rotate every match and everyone still
-scores individually. The scheduler keeps game counts level and avoids repeating
-partners for as long as it can. With 4 dads it produces the 3 matches where
-everyone partners everyone exactly once.
+**1 v 1** — one player on each side.
+
+**2 v 2** — two on each side, and everyone still scores individually.
+
+Opponents are always chosen by hand. Changing a sport's format clears the
+matches already added to that sport, and only that sport.
 
 ## Points
 

@@ -1,7 +1,7 @@
 {
   "name": "Dad Championships",
   "short_name": "Dad Champs",
-  "description": "Run a multi-sport championship between dads. One pitch, one sport at a time, one table to rule them all.",
+  "description": "Run a multi-sport championship across three generations. Pick the opponents, set the times, keep one table.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

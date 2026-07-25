@@ -1,12 +1,16 @@
 // Engine tests. Run with: node test.mjs
 import {
-  roundRobinRounds,
-  singlesMatches,
-  doublesMatches,
-  defaultDoublesMatchCount,
-  buildSchedule,
+  GENERATIONS,
+  generationLabel,
+  teamSize,
+  orderedSports,
+  matchesForSport,
+  orderedMatches,
+  unassignedPlayers,
+  validateMatch,
+  createMatch,
   standings,
-  nextMatchIndex,
+  nextUnplayed,
   progress,
 } from './tournament.js';
 
@@ -28,185 +32,184 @@ function group(name, fn) {
   fn();
 }
 
-const key = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
-const ids = (n) => Array.from({ length: n }, (_, i) => `p${i + 1}`);
+const players = [
+  { id: 'p1', name: 'Jesper', generation: 'dad' },
+  { id: 'p2', name: 'Martin', generation: 'dad' },
+  { id: 'p3', name: 'Bent', generation: 'granddad' },
+  { id: 'p4', name: 'Emil', generation: 'kid' },
+  { id: 'p5', name: 'Alma', generation: 'kid' },
+  { id: 'p6', name: 'Ove', generation: 'granddad' },
+];
 
-group('1v1 round robin', () => {
-  for (const n of [2, 3, 4, 5, 6, 7, 8]) {
-    const players = ids(n);
-    const matches = singlesMatches(players);
-    const expected = (n * (n - 1)) / 2;
-    check(`${n} players produce ${expected} matches`, matches.length === expected, `got ${matches.length}`);
+function baseState(overrides = {}) {
+  return {
+    players,
+    scoring: 'match',
+    nextMatchNo: 0,
+    sports: [
+      { id: 's1', name: 'Padel', order: 0, format: '2v2', time: '13:00' },
+      { id: 's2', name: 'Darts', order: 1, format: '1v1', time: '10:30' },
+      { id: 's3', name: 'Bowling', order: 2, format: '1v1', time: null },
+    ],
+    matches: [],
+    ...overrides,
+  };
+}
 
-    const seen = new Set();
-    let duplicates = 0;
-    for (const m of matches) {
-      const k = key(m.teamA[0], m.teamB[0]);
-      if (seen.has(k)) duplicates++;
-      seen.add(k);
-    }
-    check(`${n} players: every pair meets exactly once`, duplicates === 0 && seen.size === expected);
-
-    const counts = new Map(players.map((p) => [p, 0]));
-    for (const m of matches) {
-      counts.set(m.teamA[0], counts.get(m.teamA[0]) + 1);
-      counts.set(m.teamB[0], counts.get(m.teamB[0]) + 1);
-    }
-    check(`${n} players: everyone plays ${n - 1} matches`, [...counts.values()].every((c) => c === n - 1));
-  }
-
-  const rounds = roundRobinRounds(ids(6));
-  const noClash = rounds.every((round) => {
-    const inRound = round.flat();
-    return new Set(inRound).size === inRound.length;
-  });
-  check('nobody appears twice inside one round', noClash);
+group('generations', () => {
+  check('three generations exist', GENERATIONS.length === 3);
+  check('dad, granddad and kid', GENERATIONS.map((g) => g.id).join(',') === 'dad,granddad,kid');
+  check('granddad reads as Granddad', generationLabel('granddad') === 'Granddad');
+  check('an unknown generation falls back to Dad', generationLabel('nonsense') === 'Dad');
 });
 
-group('2v2 americano', () => {
-  const players = ids(4);
-  const matches = doublesMatches(players, 3);
-  check('4 players default to 3 matches', defaultDoublesMatchCount(4) === 3);
-  check('4 players: 3 matches generated', matches.length === 3);
-
-  const partners = new Set();
-  for (const m of matches) {
-    partners.add(key(m.teamA[0], m.teamA[1]));
-    partners.add(key(m.teamB[0], m.teamB[1]));
-  }
-  check('4 players: all 6 partnerships used exactly once', partners.size === 6, `got ${partners.size}`);
-
-  for (const n of [4, 5, 6, 7, 8, 10, 12]) {
-    const list = ids(n);
-    const count = defaultDoublesMatchCount(n);
-    const generated = doublesMatches(list, count);
-    check(`${n} players: ${count} matches generated`, generated.length === count);
-
-    const played = new Map(list.map((p) => [p, 0]));
-    for (const m of generated) {
-      for (const id of [...m.teamA, ...m.teamB]) played.set(id, played.get(id) + 1);
-    }
-    const values = [...played.values()];
-    const spread = Math.max(...values) - Math.min(...values);
-    check(`${n} players: game counts differ by at most 1 (spread ${spread})`, spread <= 1);
-
-    const everyMatchHasFour = generated.every(
-      (m) => new Set([...m.teamA, ...m.teamB]).size === 4
-    );
-    check(`${n} players: no dad plays against himself`, everyMatchHasFour);
-
-    const repeats = new Map();
-    for (const m of generated) {
-      for (const pair of [m.teamA, m.teamB]) {
-        const k = key(pair[0], pair[1]);
-        repeats.set(k, (repeats.get(k) || 0) + 1);
-      }
-    }
-    const worstRepeat = Math.max(...repeats.values());
-    const maxAcceptable = Math.ceil((count * 2) / ((n * (n - 1)) / 2)) + 1;
-    check(
-      `${n} players: partner repeats stay low (worst ${worstRepeat})`,
-      worstRepeat <= maxAcceptable,
-      `allowed ${maxAcceptable}`
-    );
-  }
+group('per-sport format', () => {
+  check('1v1 puts one player on a side', teamSize('1v1') === 1);
+  check('2v2 puts two players on a side', teamSize('2v2') === 2);
+  const s = baseState();
+  check('sports can differ from each other', s.sports[0].format === '2v2' && s.sports[1].format === '1v1');
 });
 
-group('schedule build', () => {
-  const players = ids(4).map((id) => ({ id, name: id.toUpperCase() }));
-  const sports = [
-    { id: 's1', name: 'Padel' },
-    { id: 's2', name: 'Darts' },
-    { id: 's3', name: 'Bowling' },
-  ];
+group('booked times drive the running order', () => {
+  const s = baseState();
+  const order = orderedSports(s.sports).map((x) => x.name);
+  check('earliest booked time comes first', order[0] === 'Darts', order.join(','));
+  check('later booked time follows', order[1] === 'Padel', order.join(','));
+  check('a sport with no time goes last', order[2] === 'Bowling', order.join(','));
 
-  const doubles = buildSchedule({ format: '2v2', players, sports, matchesPerSport: 3 });
-  check('3 sports x 3 matches = 9 fixtures', doubles.length === 9);
+  const untimed = orderedSports([
+    { id: 'a', name: 'A', order: 0, time: null },
+    { id: 'b', name: 'B', order: 1, time: null },
+  ]).map((x) => x.name);
+  check('with no times at all, entry order is kept', untimed.join(',') === 'A,B');
 
-  const order = doubles.map((m) => m.sportId);
-  const grouped = order.join(',') === 's1,s1,s1,s2,s2,s2,s3,s3,s3';
-  check('one sport is finished before the next one starts', grouped, order.join(','));
+  const sameTime = orderedSports([
+    { id: 'b', name: 'B', order: 1, time: '09:00' },
+    { id: 'a', name: 'A', order: 0, time: '09:00' },
+  ]).map((x) => x.name);
+  check('equal times fall back to entry order', sameTime.join(',') === 'A,B');
 
-  const singles = buildSchedule({ format: '1v1', players, sports });
-  check('1v1 with 4 dads over 3 sports = 18 fixtures', singles.length === 18);
+  check('ordering does not mutate the original list', orderedSports(s.sports) !== s.sports);
+});
 
-  const uniqueIds = new Set(singles.map((m) => m.id));
-  check('every fixture has a unique id', uniqueIds.size === singles.length);
-  check('fixtures start unplayed', singles.every((m) => !m.done && m.scoreA === null));
+group('choosing opponents by hand', () => {
+  const s = baseState();
 
-  const firstPairs = sports.map((s) => {
-    const first = doubles.find((m) => m.sportId === s.id);
-    return key(first.teamA[0], first.teamA[1]);
-  });
-  check('opening pair rotates between sports', new Set(firstPairs).size > 1, firstPairs.join(' '));
+  check('nothing is scheduled until you add it', s.matches.length === 0);
+  check('everyone is without an opponent at the start', unassignedPlayers(s, 's2').length === 6);
+
+  const m1 = createMatch(s, 's2', ['p1'], ['p3']);
+  s.matches.push(m1);
+  check('a singles match holds one player per side', m1.teamA.length === 1 && m1.teamB.length === 1);
+  check('a new match starts unplayed', !m1.done && m1.scoreA === null);
+  check('the two chosen players drop off the waiting list', unassignedPlayers(s, 's2').length === 4);
+  check(
+    'the waiting list names who is left',
+    unassignedPlayers(s, 's2').map((p) => p.name).join(',') === 'Martin,Emil,Alma,Ove'
+  );
+  check('another sport is untouched', unassignedPlayers(s, 's1').length === 6);
+
+  const m2 = createMatch(s, 's1', ['p1', 'p2'], ['p3', 'p4']);
+  s.matches.push(m2);
+  check('a doubles match holds two players per side', m2.teamA.length === 2 && m2.teamB.length === 2);
+  check('match ids are unique', m1.id !== m2.id);
+  check('padel now has one match', matchesForSport(s.matches, 's1').length === 1);
+  check('two of six still wait in padel', unassignedPlayers(s, 's1').length === 2);
+
+  check('not everyone has to play everyone', s.matches.length === 2);
+});
+
+group('a match has to make sense', () => {
+  check('1v1 needs both sides filled', validateMatch(['p1'], [], '1v1') !== null);
+  check('1v1 with one each is fine', validateMatch(['p1'], ['p2'], '1v1') === null);
+  check('1v1 rejects two on a side', validateMatch(['p1', 'p2'], ['p3'], '1v1') !== null);
+  check('2v2 needs four players', validateMatch(['p1', 'p2'], ['p3'], '2v2') !== null);
+  check('2v2 with two each is fine', validateMatch(['p1', 'p2'], ['p3', 'p4'], '2v2') === null);
+  check('nobody plays against himself', validateMatch(['p1'], ['p1'], '1v1') !== null);
+  check(
+    'nobody appears twice in a doubles match',
+    validateMatch(['p1', 'p2'], ['p2', 'p3'], '2v2') !== null
+  );
+
+  const s = baseState();
+  let threw = false;
+  try { createMatch(s, 's2', ['p1'], ['p1']); } catch { threw = true; }
+  check('creating an invalid match throws', threw);
+});
+
+group('running order across sports', () => {
+  const s = baseState();
+  s.matches.push(createMatch(s, 's1', ['p1', 'p2'], ['p3', 'p4'])); // padel, 13:00
+  s.matches.push(createMatch(s, 's3', ['p1'], ['p2']));             // bowling, no time
+  s.matches.push(createMatch(s, 's2', ['p5'], ['p6']));             // darts, 10:30
+
+  const order = orderedMatches(s).map((m) => m.sportId);
+  check('matches follow the booked times', order.join(',') === 's2,s1,s3', order.join(','));
+
+  check('the next match is the earliest unplayed one', nextUnplayed(s).sportId === 's2');
+  s.matches.find((m) => m.sportId === 's2').done = true;
+  check('once played, the next one moves on', nextUnplayed(s).sportId === 's1');
+  s.matches.forEach((m) => { m.done = true; });
+  check('nothing left returns null', nextUnplayed(s) === null);
+  check('progress counts every match', progress(s.matches).done === 3);
 });
 
 group('standings — match points', () => {
-  const players = ['a', 'b', 'c', 'd'].map((id) => ({ id, name: id.toUpperCase() }));
-  const state = {
-    players,
-    scoring: 'match',
+  const s = baseState({
     matches: [
-      { id: 'm1', sportId: 's1', teamA: ['a', 'b'], teamB: ['c', 'd'], scoreA: 21, scoreB: 15, done: true },
-      { id: 'm2', sportId: 's1', teamA: ['a', 'c'], teamB: ['b', 'd'], scoreA: 10, scoreB: 10, done: true },
-      { id: 'm3', sportId: 's2', teamA: ['a', 'd'], teamB: ['b', 'c'], scoreA: 5, scoreB: 12, done: true },
-      { id: 'm4', sportId: 's2', teamA: ['a', 'b'], teamB: ['c', 'd'], scoreA: null, scoreB: null, done: false },
+      { id: 'm1', sportId: 's1', teamA: ['p1', 'p2'], teamB: ['p3', 'p4'], scoreA: 21, scoreB: 15, done: true },
+      { id: 'm2', sportId: 's1', teamA: ['p1', 'p3'], teamB: ['p2', 'p4'], scoreA: 10, scoreB: 10, done: true },
+      { id: 'm3', sportId: 's2', teamA: ['p1'], teamB: ['p2'], scoreA: 5, scoreB: 12, done: true },
+      { id: 'm4', sportId: 's2', teamA: ['p3'], teamB: ['p4'], scoreA: null, scoreB: null, done: false },
     ],
-  };
+  });
 
-  const table = standings(state);
+  const table = standings(s);
   const row = (id) => table.find((r) => r.playerId === id);
 
-  check('A: win + draw + loss = 4 points', row('a').points === 4, `got ${row('a').points}`);
-  check('B: win + draw + win = 7 points', row('b').points === 7, `got ${row('b').points}`);
-  check('C: loss + draw + win = 4 points', row('c').points === 4, `got ${row('c').points}`);
-  check('D: loss + draw + loss = 1 point', row('d').points === 1, `got ${row('d').points}`);
-  check('B leads the table', table[0].playerId === 'b');
-  check('unplayed matches are ignored', row('a').played === 3);
-  check('A scored 21+10+5 = 36', row('a').pointsFor === 36, `got ${row('a').pointsFor}`);
-  check('A conceded 15+10+12 = 37', row('a').pointsAgainst === 37);
-  check('A difference is -1', row('a').diff === -1);
-  check('win/draw/loss counts add up', row('a').won === 1 && row('a').drawn === 1 && row('a').lost === 1);
+  check('Jesper: win + draw + loss = 4', row('p1').points === 4, `got ${row('p1').points}`);
+  check('Martin: win + draw + win = 7', row('p2').points === 7, `got ${row('p2').points}`);
+  check('Bent: loss + draw = 1', row('p3').points === 1, `got ${row('p3').points}`);
+  check('Martin leads', table[0].playerId === 'p2');
+  check('unplayed matches are ignored', row('p3').played === 2);
+  check('players who never played show zero', row('p5').played === 0 && row('p5').points === 0);
+  check('the generation travels into the table', row('p3').generation === 'granddad');
+  check('Jesper scored 21+10+5 = 36', row('p1').pointsFor === 36);
+  check('Jesper conceded 15+10+12 = 37', row('p1').pointsAgainst === 37);
+  check('difference is -1', row('p1').diff === -1);
+  check('win/draw/loss add up', row('p1').won === 1 && row('p1').drawn === 1 && row('p1').lost === 1);
+  check('every difference cancels out', table.reduce((sum, r) => sum + r.diff, 0) === 0);
 
-  const perSport = standings(state, 's2');
-  check('per-sport table only counts that sport', perSport.find((r) => r.playerId === 'a').played === 1);
-  check('per-sport: B and C won their only s2 match', perSport[0].points === 3);
-
-  const tied = standings(state);
-  const aRank = tied.findIndex((r) => r.playerId === 'a');
-  const cRank = tied.findIndex((r) => r.playerId === 'c');
-  check('equal points are split on score difference (C ahead of A)', cRank < aRank, `a=${aRank} c=${cRank}`);
+  const perSport = standings(s, 's2');
+  check('a per-sport table only counts that sport', perSport.find((r) => r.playerId === 'p1').played === 1);
+  check('Martin won the only darts match', perSport[0].playerId === 'p2' && perSport[0].points === 3);
 });
 
 group('standings — points scored', () => {
-  const players = ['a', 'b', 'c', 'd'].map((id) => ({ id, name: id.toUpperCase() }));
-  const state = {
-    players,
+  const s = baseState({
     scoring: 'score',
     matches: [
-      { id: 'm1', sportId: 's1', teamA: ['a', 'b'], teamB: ['c', 'd'], scoreA: 21, scoreB: 15, done: true },
-      { id: 'm2', sportId: 's1', teamA: ['a', 'c'], teamB: ['b', 'd'], scoreA: 10, scoreB: 18, done: true },
+      { id: 'm1', sportId: 's1', teamA: ['p1', 'p2'], teamB: ['p3', 'p4'], scoreA: 21, scoreB: 15, done: true },
+      { id: 'm2', sportId: 's1', teamA: ['p1', 'p3'], teamB: ['p2', 'p4'], scoreA: 10, scoreB: 18, done: true },
     ],
-  };
-  const table = standings(state);
+  });
+  const table = standings(s);
   const row = (id) => table.find((r) => r.playerId === id);
-  check('A collects 21 + 10 = 31', row('a').points === 31, `got ${row('a').points}`);
-  check('B collects 21 + 18 = 39', row('b').points === 39, `got ${row('b').points}`);
-  check('D collects 15 + 18 = 33', row('d').points === 33);
-  check('B leads on points scored', table[0].playerId === 'b');
+  check('Jesper collects 21 + 10 = 31', row('p1').points === 31);
+  check('Martin collects 21 + 18 = 39', row('p2').points === 39);
+  check('Martin leads on points scored', table[0].playerId === 'p2');
 });
 
-group('progress helpers', () => {
-  const matches = [
-    { done: true },
-    { done: true },
-    { done: false },
-    { done: false },
-  ];
-  check('next unplayed match is index 2', nextMatchIndex(matches) === 2);
-  check('progress reports 2 of 4', progress(matches).done === 2 && progress(matches).total === 4);
-  check('finished championship returns null', nextMatchIndex([{ done: true }]) === null);
-  check('a replayed early match is picked up again', nextMatchIndex([{ done: false }, { done: true }]) === 0);
+group('ties', () => {
+  const s = baseState({
+    matches: [
+      { id: 'm1', sportId: 's2', teamA: ['p1'], teamB: ['p2'], scoreA: 20, scoreB: 1, done: true },
+      { id: 'm2', sportId: 's2', teamA: ['p3'], teamB: ['p4'], scoreA: 11, scoreB: 10, done: true },
+    ],
+  });
+  const table = standings(s);
+  check('equal points split on score difference', table[0].playerId === 'p1', table[0].playerId);
+  check('the narrower win ranks second', table[1].playerId === 'p3', table[1].playerId);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

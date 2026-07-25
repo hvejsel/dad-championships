@@ -1,181 +1,90 @@
-// Tournament engine: schedule generation and standings.
+// Tournament engine: roster, fixtures and standings.
 // Pure functions only — no DOM, no storage. Imported by app.js and by test.mjs.
 
 export const WIN_POINTS = 3;
 export const DRAW_POINTS = 1;
 export const LOSS_POINTS = 0;
 
-/**
- * Round-robin pairing with the circle method.
- * Returns an array of rounds; every round is an array of [a, b] pairs and no
- * player appears twice inside the same round.
- */
-export function roundRobinRounds(playerIds) {
-  const arr = playerIds.slice();
-  if (arr.length < 2) return [];
-  if (arr.length % 2 === 1) arr.push(null); // bye marker
+// Three generations play the same championship.
+export const GENERATIONS = [
+  { id: 'dad', label: 'Dad' },
+  { id: 'granddad', label: 'Granddad' },
+  { id: 'kid', label: 'Kid' },
+];
 
-  const n = arr.length;
-  const rounds = [];
-  for (let r = 0; r < n - 1; r++) {
-    const pairs = [];
-    for (let i = 0; i < n / 2; i++) {
-      const a = arr[i];
-      const b = arr[n - 1 - i];
-      if (a !== null && b !== null) pairs.push([a, b]);
-    }
-    rounds.push(pairs);
-    arr.splice(1, 0, arr.pop()); // rotate everything except the first seat
-  }
-  return rounds;
+export function generationLabel(id) {
+  const found = GENERATIONS.find((g) => g.id === id);
+  return found ? found.label : GENERATIONS[0].label;
 }
 
-/** Every player meets every other player exactly once. */
-export function singlesMatches(playerIds) {
-  const matches = [];
-  for (const round of roundRobinRounds(playerIds)) {
-    for (const [a, b] of round) matches.push({ teamA: [a], teamB: [b] });
-  }
-  return matches;
+/** How many players belong on one side of a match in this format. */
+export function teamSize(format) {
+  return format === '2v2' ? 2 : 1;
 }
 
 /**
- * Default number of doubles matches for one sport: enough for every possible
- * partnership to happen once (each match burns two partnerships).
+ * Sports run in the order they were given a time; anything without a time
+ * follows in the order it was added. The list answers "what happens next".
  */
-export function defaultDoublesMatchCount(playerCount) {
-  if (playerCount < 4) return 0;
-  return Math.max(3, Math.round((playerCount * (playerCount - 1)) / 4));
+export function orderedSports(sports) {
+  return sports.slice().sort((a, b) => {
+    if (a.time && b.time) return a.time.localeCompare(b.time) || a.order - b.order;
+    if (a.time) return -1;
+    if (b.time) return 1;
+    return a.order - b.order;
+  });
 }
 
-function pairKey(a, b) {
-  return a < b ? `${a}|${b}` : `${b}|${a}`;
+export function matchesForSport(matches, sportId) {
+  return matches.filter((m) => m.sportId === sportId);
 }
 
-function combinations(list, size) {
+/** Every match of this sport, in the order they were added. */
+export function orderedMatches(state) {
   const out = [];
-  const walk = (start, picked) => {
-    if (picked.length === size) {
-      out.push(picked.slice());
-      return;
-    }
-    for (let i = start; i < list.length; i++) {
-      picked.push(list[i]);
-      walk(i + 1, picked);
-      picked.pop();
-    }
-  };
-  walk(0, []);
+  for (const sport of orderedSports(state.sports)) {
+    for (const match of matchesForSport(state.matches, sport.id)) out.push(match);
+  }
   return out;
 }
 
-const SPLITS = [
-  [[0, 1], [2, 3]],
-  [[0, 2], [1, 3]],
-  [[0, 3], [1, 2]],
-];
-
 /**
- * Americano-style doubles: individual scores, rotating partners.
- * Greedy scheduler that, for every match, prefers the players who have played
- * least and the pairing that repeats partners and opponents the least.
+ * Who has not been given an opponent in this sport yet. Opponents are chosen
+ * by hand, so this is the reminder that somebody is still sitting out.
  */
-export function doublesMatches(playerIds, matchCount) {
-  if (playerIds.length < 4 || matchCount < 1) return [];
-
-  const played = new Map(playerIds.map((id) => [id, 0]));
-  const lastPlayed = new Map(playerIds.map((id) => [id, -99]));
-  const partnerCount = new Map();
-  const opponentCount = new Map();
-  const bump = (map, key) => map.set(key, (map.get(key) || 0) + 1);
-  const countOf = (map, key) => map.get(key) || 0;
-
-  const matches = [];
-  for (let m = 0; m < matchCount; m++) {
-    // Everyone on the lowest game count must play; pull in the next tier only
-    // when that is not enough bodies to fill a court.
-    const byGames = playerIds
-      .slice()
-      .sort((x, y) => played.get(x) - played.get(y) || lastPlayed.get(x) - lastPlayed.get(y));
-    const minGames = played.get(byGames[0]);
-    let pool = byGames.filter((id) => played.get(id) === minGames);
-    let tier = minGames;
-    while (pool.length < 4) {
-      tier += 1;
-      pool = pool.concat(byGames.filter((id) => played.get(id) === tier));
-    }
-    const mustPlay = playerIds.filter((id) => played.get(id) === minGames);
-    const candidates = pool.length <= 4 ? [pool.slice(0, 4)] : combinations(pool, 4);
-
-    let best = null;
-    for (const quad of candidates) {
-      // Prefer quartets that use up the most-rested players.
-      const restCost = quad.reduce(
-        (sum, id) => sum + played.get(id) * 100 + Math.max(0, 3 + lastPlayed.get(id) - m) * 40,
-        0
-      );
-      const urgency = mustPlay.filter((id) => !quad.includes(id)).length * 5000;
-
-      for (const [pa, pb] of SPLITS) {
-        const teamA = [quad[pa[0]], quad[pa[1]]];
-        const teamB = [quad[pb[0]], quad[pb[1]]];
-        const partnerCost =
-          (countOf(partnerCount, pairKey(teamA[0], teamA[1])) +
-            countOf(partnerCount, pairKey(teamB[0], teamB[1]))) * 1000;
-        let opponentCost = 0;
-        for (const a of teamA) {
-          for (const b of teamB) opponentCost += countOf(opponentCount, pairKey(a, b)) * 60;
-        }
-        const cost = urgency + partnerCost + opponentCost + restCost;
-        if (!best || cost < best.cost) best = { cost, teamA, teamB };
-      }
-    }
-
-    matches.push({ teamA: best.teamA, teamB: best.teamB });
-    bump(partnerCount, pairKey(best.teamA[0], best.teamA[1]));
-    bump(partnerCount, pairKey(best.teamB[0], best.teamB[1]));
-    for (const a of best.teamA) {
-      for (const b of best.teamB) bump(opponentCount, pairKey(a, b));
-    }
-    for (const id of [...best.teamA, ...best.teamB]) {
-      played.set(id, played.get(id) + 1);
-      lastPlayed.set(id, m);
-    }
+export function unassignedPlayers(state, sportId) {
+  const busy = new Set();
+  for (const match of matchesForSport(state.matches, sportId)) {
+    for (const id of [...match.teamA, ...match.teamB]) busy.add(id);
   }
-  return matches;
+  return state.players.filter((p) => !busy.has(p.id));
 }
 
-/**
- * Full fixture list for the championship. Sports run one at a time, in the
- * order they were added, because there is only one pitch.
- */
-export function buildSchedule({ format, players, sports, matchesPerSport }) {
-  const baseIds = players.map((p) => p.id);
-  const matches = [];
-  sports.forEach((sport, sportIndex) => {
-    // Rotate the seeding per sport so the same two dads are not paired up in
-    // the opening match of every single sport.
-    const offset = baseIds.length ? sportIndex % baseIds.length : 0;
-    const playerIds = baseIds.slice(offset).concat(baseIds.slice(0, offset));
-    const raw =
-      format === '2v2'
-        ? doublesMatches(playerIds, matchesPerSport || defaultDoublesMatchCount(playerIds.length))
-        : singlesMatches(playerIds);
-    raw.forEach((match, i) => {
-      matches.push({
-        id: `${sport.id}-${i}`,
-        sportId: sport.id,
-        sportIndex,
-        roundInSport: i + 1,
-        teamA: match.teamA,
-        teamB: match.teamB,
-        scoreA: null,
-        scoreB: null,
-        done: false,
-      });
-    });
-  });
-  return matches;
+/** A match is only playable with full, non-overlapping sides. */
+export function validateMatch(teamA, teamB, format) {
+  const size = teamSize(format);
+  if (teamA.length !== size || teamB.length !== size) {
+    return size === 1 ? 'Pick one player on each side.' : 'Pick two players on each side.';
+  }
+  const everyone = [...teamA, ...teamB];
+  if (new Set(everyone).size !== everyone.length) return 'Nobody can play against themselves.';
+  return null;
+}
+
+export function createMatch(state, sportId, teamA, teamB) {
+  const sport = state.sports.find((s) => s.id === sportId);
+  const error = validateMatch(teamA, teamB, sport ? sport.format : '1v1');
+  if (error) throw new Error(error);
+  state.nextMatchNo = (state.nextMatchNo || 0) + 1;
+  return {
+    id: `m${state.nextMatchNo}`,
+    sportId,
+    teamA: teamA.slice(),
+    teamB: teamB.slice(),
+    scoreA: null,
+    scoreB: null,
+    done: false,
+  };
 }
 
 export function matchPointsFor(scoreFor, scoreAgainst) {
@@ -196,6 +105,7 @@ export function standings(state, sportId = null) {
       {
         playerId: p.id,
         name: p.name,
+        generation: p.generation,
         played: 0,
         won: 0,
         drawn: 0,
@@ -241,9 +151,9 @@ export function standings(state, sportId = null) {
   );
 }
 
-export function nextMatchIndex(matches) {
-  const index = matches.findIndex((m) => !m.done);
-  return index === -1 ? null : index;
+/** The next match still to be played, following the running order. */
+export function nextUnplayed(state) {
+  return orderedMatches(state).find((m) => !m.done) || null;
 }
 
 export function progress(matches) {

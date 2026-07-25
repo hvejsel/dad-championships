@@ -535,6 +535,243 @@ button { font-family: inherit; }
   font-weight: 600;
 }
 
+/* ---------------------------- generation tags --------------------------- */
+/* three generations on one scorecard, told apart at a glance */
+
+.gen {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 6px;
+  flex: none;
+  white-space: nowrap;
+  vertical-align: 1px;
+}
+.gen-dad { background: var(--court-wash); color: var(--court-deep); }
+.gen-granddad { background: var(--brass-wash); color: var(--brass-ink); }
+.gen-kid { background: rgba(46, 125, 79, 0.10); color: var(--grass); }
+
+.gen-btn {
+  border: 0;
+  cursor: pointer;
+  margin-right: 12px;
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+/* --------------------------- sport setup rows --------------------------- */
+
+.sport-setup { display: grid; gap: 10px; margin-bottom: 24px; }
+.sport-row {
+  background: var(--card);
+  border-radius: var(--r-card);
+  box-shadow: var(--lift);
+  padding: 6px 14px 12px;
+}
+.sport-row input[type="text"] {
+  padding: 0;
+  min-height: 44px;
+  font-weight: 600;
+  font-size: 16.5px;
+}
+.sport-row input[type="text"]:focus { outline-offset: 2px; border-radius: 6px; }
+.sport-row-controls { display: flex; align-items: center; gap: 10px; }
+
+.mini-seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: rgba(58, 52, 42, 0.07);
+  border-radius: 9px;
+}
+.mini-seg button {
+  border: 0;
+  background: none;
+  border-radius: 7px;
+  padding: 6px 11px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+  min-height: 32px;
+  white-space: nowrap;
+}
+.mini-seg button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(40,35,25,.12); }
+
+.time-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(58, 52, 42, 0.07);
+  border-radius: 9px;
+  padding: 0 10px;
+  min-height: 36px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+.time-pill input[type="time"] {
+  border: 0;
+  background: none;
+  padding: 0;
+  min-height: 34px;
+  width: auto;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  font-family: inherit;
+}
+.time-pill input[type="time"]:focus { outline: none; }
+
+/* ------------------------- the booked-time chip ------------------------- */
+
+.sport-head-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.time-chip {
+  border: 0;
+  background: rgba(58, 52, 42, 0.07);
+  color: var(--ink-soft);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 28px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex: none;
+}
+.time-chip.set { background: var(--court-wash); color: var(--court-deep); }
+
+.waiting {
+  margin: 9px 4px 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+.add-match {
+  margin-top: 10px;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: var(--card);
+  box-shadow: var(--lift);
+  color: var(--court);
+  font-size: 15.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .12s;
+}
+.add-match:active { background: var(--card-sunk); }
+.add-match span { font-weight: 400; margin-right: 2px; }
+
+/* ---------------------------- the match builder ------------------------- */
+
+.pick-counts {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.pick-counts span {
+  flex: 1;
+  text-align: center;
+  padding: 7px;
+  border-radius: 9px;
+}
+.pick-counts .side-a { background: var(--court-wash); color: var(--court-deep); }
+.pick-counts .side-b { background: var(--brass-wash); color: var(--brass-ink); }
+
+.pick-list {
+  background: var(--card);
+  border-radius: var(--r-card);
+  box-shadow: var(--lift);
+  overflow: hidden;
+  margin-bottom: 14px;
+  max-height: 46dvh;
+  overflow-y: auto;
+}
+.pick-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 12px 16px;
+  min-height: var(--tap);
+  cursor: pointer;
+  text-align: left;
+  color: var(--ink);
+  transition: background .12s;
+}
+.pick-row + .pick-row { border-top: 1px solid var(--chalk-soft); }
+.pick-row:active { background: var(--card-sunk); }
+.pick-name { font-size: 16px; font-weight: 600; letter-spacing: -0.2px; }
+.pick-row .already {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  margin-left: auto;
+}
+.pick-slot {
+  margin-left: auto;
+  width: 27px; height: 27px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 800;
+  flex: none;
+  color: transparent;
+}
+.pick-row .already + .pick-slot { margin-left: 8px; }
+.pick-row.side-a { background: var(--court-wash); }
+.pick-row.side-a .pick-slot { background: var(--court); color: #fff; }
+.pick-row.side-b { background: var(--brass-wash); }
+.pick-row.side-b .pick-slot { background: var(--brass); color: #fff; }
+
+/* ---------------------------- sport settings ---------------------------- */
+
+.time-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--card);
+  border-radius: var(--r-card);
+  box-shadow: var(--lift);
+  padding: 6px 16px;
+  margin-bottom: 22px;
+}
+.time-row input[type="time"] {
+  flex: 1;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: 19px;
+  font-weight: 600;
+  min-height: 46px;
+  font-variant-numeric: tabular-nums;
+}
+.time-row input[type="time"]:focus { outline: none; }
+.link-btn {
+  border: 0;
+  background: none;
+  color: var(--court);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 2px;
+  flex: none;
+}
+
+.champion-strip { text-align: center; padding: 4px 0 10px; }
+
 /* ================================= TABLE ================================= */
 
 /* who is winning, answered before the detail */
@@ -658,15 +895,31 @@ button { font-family: inherit; }
   padding: 12px 16px;
 }
 .standings-row + .standings-row { border-top: 1px solid var(--chalk-soft); }
+/* Name over generation: the row is too narrow to carry both side by side. */
 .standings-row .who-name {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
   font-weight: 600;
   font-size: 16px;
   letter-spacing: -0.2px;
-  white-space: nowrap;
+  line-height: 1.25;
+}
+.standings-row .who-name .nm {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* the same colour coding, carried by the text alone so it costs no width */
+.who-name .gen-line {
+  background: none;
+  padding: 0;
+  font-size: 10.5px;
+  letter-spacing: 0.5px;
 }
 .standings-row .record,
 .standings-head .record {
@@ -795,6 +1048,7 @@ button { font-family: inherit; }
 
 /* ================================== TABS ================================= */
 
+.tabs.two { grid-template-columns: repeat(2, 1fr); }
 .tabs {
   position: sticky;
   bottom: 0;

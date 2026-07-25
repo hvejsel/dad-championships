@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <title>Dad Championships</title>
-<meta name="description" content="Run a multi-sport championship between dads. One pitch, one sport at a time, one table to rule them all.">
+<meta name="description" content="Run a multi-sport championship across three generations. Pick the opponents, set the times, keep one table.">
 <meta name="theme-color" content="#f3f1ec">
 <meta name="color-scheme" content="light">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -37,68 +37,51 @@
     <section id="view-setup" class="view">
 
       <ol class="stepper" id="stepper">
-        <li data-step="1" class="active"><span>1</span>Sports</li>
-        <li data-step="2"><span>2</span>Dads</li>
-        <li data-step="3"><span>3</span>Rules</li>
+        <li data-step="1" class="active"><span>1</span>Family</li>
+        <li data-step="2"><span>2</span>Sports</li>
+        <li data-step="3"><span>3</span>Points</li>
       </ol>
 
-      <!-- Step 1: sports -->
+      <!-- Step 1: the family -->
       <div class="step" data-step="1">
-        <h2>How many sports?</h2>
-        <p class="hint">You play one sport at a time, start to finish, before moving on to the next.</p>
+        <h2>Who is playing?</h2>
+        <p class="hint">Dads, granddads and kids all play the same championship. Tap the tag to change generation.</p>
+        <div class="counter">
+          <button class="round-btn" data-count="players" data-delta="-1" aria-label="Fewer players">−</button>
+          <output id="players-count">4</output>
+          <button class="round-btn" data-count="players" data-delta="1" aria-label="More players">+</button>
+        </div>
+        <p class="eyebrow">The field</p>
+        <div id="player-names" class="name-list"></div>
+        <button class="primary" data-goto="2">Next: the sports</button>
+      </div>
+
+      <!-- Step 2: the sports -->
+      <div class="step" data-step="2" hidden>
+        <h2>Which sports?</h2>
+        <p class="hint">Each sport is set up on its own — singles or doubles, and the time you booked.</p>
         <div class="counter">
           <button class="round-btn" data-count="sports" data-delta="-1" aria-label="Fewer sports">−</button>
           <output id="sports-count">3</output>
           <button class="round-btn" data-count="sports" data-delta="1" aria-label="More sports">+</button>
         </div>
         <p class="eyebrow">The line-up</p>
-        <div id="sport-names" class="name-list"></div>
-        <button class="primary" data-goto="2">Next: add the dads</button>
-      </div>
-
-      <!-- Step 2: players -->
-      <div class="step" data-step="2" hidden>
-        <h2>Who is playing?</h2>
-        <p class="hint">Everyone scores individually, even in doubles.</p>
-        <div class="counter">
-          <button class="round-btn" data-count="players" data-delta="-1" aria-label="Fewer dads">−</button>
-          <output id="players-count">4</output>
-          <button class="round-btn" data-count="players" data-delta="1" aria-label="More dads">+</button>
-        </div>
-        <p class="eyebrow">The field</p>
-        <div id="player-names" class="name-list"></div>
+        <div id="sport-rows" class="sport-setup"></div>
         <div class="row-btns">
           <button class="ghost" data-goto="1">Back</button>
-          <button class="primary" data-goto="3">Next: the rules</button>
+          <button class="primary" data-goto="3">Next: the points</button>
         </div>
       </div>
 
-      <!-- Step 3: rules -->
+      <!-- Step 3: points -->
       <div class="step" data-step="3" hidden>
-        <h2>How do you play?</h2>
+        <h2>How are points given?</h2>
+        <p class="hint">You pick the opponents yourself once the championship exists.</p>
 
         <div class="field">
-          <label>Teams</label>
-          <div class="segmented" id="seg-format">
-            <button data-value="1v1" class="on">1 v 1<small>Everyone meets everyone</small></button>
-            <button data-value="2v2">2 v 2<small>Partners rotate every match</small></button>
-          </div>
-        </div>
-
-        <div class="field">
-          <label>Points</label>
           <div class="segmented" id="seg-scoring">
             <button data-value="match" class="on">Win = 3<small>Draw 1, loss 0</small></button>
             <button data-value="score">Score counts<small>Every point you score</small></button>
-          </div>
-        </div>
-
-        <div class="field" id="field-matchcount" hidden>
-          <label>Matches per sport</label>
-          <div class="counter small">
-            <button class="round-btn" data-count="matches" data-delta="-1" aria-label="Fewer matches">−</button>
-            <output id="matches-count">3</output>
-            <button class="round-btn" data-count="matches" data-delta="1" aria-label="More matches">+</button>
           </div>
         </div>
 
@@ -112,9 +95,9 @@
       </div>
     </section>
 
-    <!-- ============================ PLAY ============================ -->
-    <section id="view-play" class="view" hidden>
-      <div id="play-body"></div>
+    <!-- =========================== MATCHES =========================== -->
+    <section id="view-matches" class="view" hidden>
+      <div id="matches-body"></div>
     </section>
 
     <!-- ============================ TABLE ============================ -->
@@ -124,19 +107,15 @@
       <button class="ghost wide" id="btn-share">Share the table</button>
     </section>
 
-    <!-- ========================== SCHEDULE ========================== -->
-    <section id="view-schedule" class="view" hidden>
-      <div id="schedule-body"></div>
-    </section>
-
   </main>
 
-  <nav id="tabs" class="tabs" hidden>
-    <button data-view="play" class="on">
+  <nav id="tabs" class="tabs two" hidden>
+    <button data-view="matches" class="on">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-        <rect x="3" y="5.5" width="18" height="13" rx="2.5"/><path d="M12 5.5v13"/>
+        <rect x="4" y="4" width="16" height="17" rx="2.5"/><path d="M8 3v3M16 3v3" stroke-linecap="round"/>
+        <path d="M8 11h8M8 15.5h5" stroke-linecap="round"/>
       </svg>
-      Play
+      Matches
     </button>
     <button data-view="table">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
@@ -145,15 +124,23 @@
       </svg>
       Table
     </button>
-    <button data-view="schedule">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-        <rect x="4" y="4" width="16" height="17" rx="2.5"/><path d="M8 3v3M16 3v3" stroke-linecap="round"/>
-        <path d="M8 11h8M8 15.5h5" stroke-linecap="round"/>
-      </svg>
-      Schedule
-    </button>
   </nav>
 
+</div>
+
+<!-- pick the two sides of a match -->
+<div id="pick-sheet" class="sheet" hidden>
+  <div class="sheet-card">
+    <div class="grabber"></div>
+    <p class="sheet-sport" id="pick-title"></p>
+    <p class="pick-counts" id="pick-counts"></p>
+    <div class="pick-list" id="pick-list"></div>
+    <p class="error" id="pick-error" hidden></p>
+    <div class="row-btns">
+      <button class="ghost" id="pick-cancel">Cancel</button>
+      <button class="primary" id="pick-save">Add match</button>
+    </div>
+  </div>
 </div>
 
 <!-- score editor -->
@@ -183,6 +170,33 @@
     <div class="row-btns">
       <button class="ghost" id="sheet-cancel">Cancel</button>
       <button class="primary" id="sheet-save">Save result</button>
+    </div>
+    <button class="danger wide" id="sheet-remove">Remove this match</button>
+  </div>
+</div>
+
+<!-- sport settings: the booked time and the format -->
+<div id="sport-sheet" class="sheet" hidden>
+  <div class="sheet-card">
+    <div class="grabber"></div>
+    <h2 id="sport-sheet-title">Sport</h2>
+
+    <p class="eyebrow">Booked time</p>
+    <div class="time-row">
+      <input id="sport-time" type="time">
+      <button class="link-btn" id="sport-time-clear">Clear</button>
+    </div>
+
+    <p class="eyebrow">Format</p>
+    <div class="segmented" id="sport-format">
+      <button data-value="1v1">1 v 1<small>Singles</small></button>
+      <button data-value="2v2">2 v 2<small>Doubles</small></button>
+    </div>
+    <p class="hint" id="sport-format-warn" hidden>Changing the format clears the matches already added to this sport.</p>
+
+    <div class="row-btns">
+      <button class="ghost" id="sport-cancel">Cancel</button>
+      <button class="primary" id="sport-save">Save</button>
     </div>
   </div>
 </div>
