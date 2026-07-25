@@ -1317,6 +1317,38 @@ button { font-family: inherit; }
   border-radius: 99px;
   background: rgba(58, 52, 42, 0.22);
 }
+/* which version is actually on this phone — the first thing to check when
+   something is reported as still broken */
+.version {
+  margin: 10px 0 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.link-btn.wide-link {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  text-align: center;
+}
+
+/* the table as plain text, when the phone will not share or copy it itself */
+.share-text {
+  width: 100%;
+  border: 0;
+  border-radius: var(--r-card);
+  background: var(--card);
+  box-shadow: var(--lift);
+  padding: 14px 16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink);
+  resize: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* the whole top of a sheet is the pull handle, not just the bar */
 .sheet-card h2, .sheet-card .sheet-sport { touch-action: none; }
 .sheet-card h2 { margin: 2px 0 16px; }

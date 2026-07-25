@@ -103,6 +103,23 @@ that, and `test-mobile.mjs` holds each of them:
   never fight.
 - **Nothing under 44px, nothing covering a button.** That is the size a thumb
   hits reliably, and the toast never swallows a tap meant for what is under it.
+- **Nothing fails in silence.** Sharing tries the phone's share sheet, then the
+  clipboard, then shows the table as plain text to copy by hand — one of those
+  always works, and every one of them says so.
+
+## Keeping it current
+
+Added to the home screen the app has no reload button, and the phone brings it
+back exactly as it was left, so a deployed fix can sit on the server for days
+without ever reaching the screen. The app therefore checks for a new version
+every time it is opened or brought to the front, and reloads itself once when
+one arrives — the running championship survives it. The foot of the menu shows
+which version is actually on the phone, and **Update the app** clears every
+cache and fetches the newest build if even that gets stuck.
+
+When something is reported as still broken, the version line is the first thing
+to ask for: it says whether the fix ever arrived. `test-update.mjs` drives that
+whole path.
 
 ## Design
 
@@ -128,6 +145,7 @@ that keeps score, so it works with no signal and survives a refresh.
 python3 -m http.server 8000   # then open http://localhost:8000
 node test.mjs                 # engine tests
 node test-mobile.mjs          # mobile tests (needs playwright + webkit)
+node test-update.mjs          # the self-update path
 node tools/gen-icons.mjs      # regenerate the app icons
 ```
 
@@ -140,5 +158,6 @@ Add it to your home screen and it opens full screen like a normal app.
 | `tournament.js` | The programme and the standings — pure functions, no DOM |
 | `app.js` | Screens, the crest, state and storage |
 | `test.mjs` | Engine tests |
-| `test-mobile.mjs` | Mobile tests — taps, sheets, the library |
+| `test-mobile.mjs` | Mobile tests — taps, sheets, the library, sharing |
+| `test-update.mjs` | The self-update path |
 | `sw.js` | Offline cache |

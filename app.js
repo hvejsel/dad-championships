@@ -33,6 +33,11 @@ import {
   STATE_VERSION,
 } from './tournament.js';
 
+/* Shown at the foot of the menu. When something is reported as still broken,
+   this is the first thing to ask for: it says whether the fix ever arrived. */
+const APP_VERSION = 8;
+const APP_DATE = '25 Jul 2026';
+
 const LIBRARY_KEY = 'dadchamps.library.v1';
 const LEGACY_STATE_KEYS = ['dadchamps.state.v3', 'dadchamps.state.v2'];
 const DRAFT_KEY = 'dadchamps.draft.v3';
@@ -1065,7 +1070,7 @@ function renderNewSportSheet() {
       }
     </div>`;
 
-  $('#new-sport-time-clear').onclick = () => { $('#new-sport-time').value = ''; };
+  $('#new-sport-time-clear').onclick = () => { $('#new-sport-time').value = ''; toast('Time cleared'); };
   $('#new-sport-save').disabled = !matches;
 }
 
@@ -1325,18 +1330,36 @@ function shareText() {
   );
 }
 
+/**
+ * Sharing has three ways to fail on a phone and every one of them used to be
+ * swallowed, which left a button that did nothing at all. Now each step falls
+ * through to the next, and the last step always works: the table on screen,
+ * ready to be selected and copied by hand.
+ */
 async function share() {
   const text = shareText();
-  try {
-    if (navigator.share) {
+
+  if (navigator.share) {
+    try {
       await navigator.share({ text });
       return;
+    } catch (error) {
+      // the user closing the share sheet is not a failure — leave them alone
+      if (error && error.name === 'AbortError') return;
     }
+  }
+
+  try {
     await navigator.clipboard.writeText(text);
     toast('Table copied');
+    return;
   } catch {
-    /* the user dismissed the share sheet — nothing to report */
+    /* no clipboard here either — show it instead */
   }
+
+  $('#share-text').value = text;
+  $('#share-sheet').hidden = false;
+  $('#share-text').select();
 }
 
 /* ========================= EVERY CHAMPIONSHIP KEPT ====================== */
@@ -1777,12 +1800,14 @@ dismissible('#new-sport-sheet', closeNewSportSheet);
 dismissible('#name-sheet', () => { $('#name-sheet').hidden = true; });
 dismissible('#menu', () => { $('#menu').hidden = true; });
 dismissible('#champs-sheet', () => { $('#champs-sheet').hidden = true; });
+dismissible('#share-sheet', () => { $('#share-sheet').hidden = true; });
 dismissible('#confirm-sheet', () => { if (confirmResolve) confirmResolve(false); });
 
 $('#confirm-no').onclick = () => { if (confirmResolve) confirmResolve(false); };
 $('#confirm-yes').onclick = () => { if (confirmResolve) confirmResolve(true); };
 
 $('#champs-close').onclick = () => { $('#champs-sheet').hidden = true; };
+$('#share-close').onclick = () => { $('#share-sheet').hidden = true; };
 $('#champs-new').onclick = startAnotherChampionship;
 $('#btn-setup-back').onclick = openChampsSheet;
 
@@ -1811,7 +1836,8 @@ $('#match-delete').onclick = async () => {
 $('#sport-cancel').onclick = closeSportSheet;
 $('#sport-save').onclick = saveSportSheet;
 $('#sport-delete').onclick = deleteSport;
-$('#sport-time-clear').onclick = () => { $('#sport-time').value = ''; };
+// an empty time field reads the same whether the tap worked or not, so say so
+$('#sport-time-clear').onclick = () => { $('#sport-time').value = ''; toast('Time cleared — Save to keep it'); };
 
 $('#new-sport-cancel').onclick = closeNewSportSheet;
 $('#new-sport-save').onclick = addNewSport;
@@ -1897,10 +1923,61 @@ syncTopbar();
 
 render();
 
+/* ============================ KEEPING IT CURRENT ======================== */
+/* Added to the home screen, the app has no reload button, and the phone
+   brings it back exactly as it was left — so a fix could sit on the server
+   for days without ever reaching the screen. The app therefore checks for a
+   new version itself, every time it is opened or brought back to the front,
+   and reloads once when one arrives. "Update the app" in the menu is the way
+   out if even that gets stuck.                                             */
+
+$('#app-version').textContent = `Version ${APP_VERSION} · ${APP_DATE}`;
+
 if ('serviceWorker' in navigator) {
+  // a first install also changes the controller; only a real update reloads
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  let reloading = false;
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    location.reload();
+  });
+
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(() => {
-      /* offline support is a bonus, never a blocker */
-    });
+    navigator.serviceWorker
+      .register('sw.js')
+      .then((registration) => {
+        const check = () => registration.update().catch(() => {});
+        check();
+        // coming back to the app is the moment a waiting fix should land
+        document.addEventListener('visibilitychange', () => {
+          if (!document.hidden) check();
+        });
+        window.addEventListener('focus', check);
+      })
+      .catch(() => {
+        /* offline support is a bonus, never a blocker */
+      });
   });
 }
+
+async function forceUpdate() {
+  toast('Fetching the newest version…');
+  try {
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((r) => r.unregister()));
+    }
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch {
+    /* nothing kept — reloading is still the right next step */
+  }
+  // a fresh address the phone has never cached, so nothing stale can win
+  location.replace(`${location.pathname}?fresh=${Date.now()}`);
+}
+
+$('#menu-update').onclick = forceUpdate;
