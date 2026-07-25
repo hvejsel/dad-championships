@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <title>Dad Championships</title>
-<meta name="description" content="Run a multi-sport championship across three generations. Pick the opponents, set the times, keep one table.">
+<meta name="description" content="Run a multi-sport championship across three generations. The app draws up the matches, you set the times, one table decides it.">
 <meta name="theme-color" content="#f3f1ec">
 <meta name="color-scheme" content="light">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -39,18 +39,13 @@
       <ol class="stepper" id="stepper">
         <li data-step="1" class="active"><span>1</span>Family</li>
         <li data-step="2"><span>2</span>Sports</li>
-        <li data-step="3"><span>3</span>Points</li>
       </ol>
 
       <!-- Step 1: the family -->
       <div class="step" data-step="1">
         <h2>Who is playing?</h2>
-        <p class="hint">Dads, granddads and kids all play the same championship. Tap the tag to change generation.</p>
-        <div class="counter">
-          <button class="round-btn" data-count="players" data-delta="-1" aria-label="Fewer players">−</button>
-          <output id="players-count">4</output>
-          <button class="round-btn" data-count="players" data-delta="1" aria-label="More players">+</button>
-        </div>
+        <p class="hint">Dads, granddads and kids all play the same championship.</p>
+        <div class="count-field" id="players-count-field"></div>
         <p class="eyebrow">The field</p>
         <div id="player-names" class="name-list"></div>
         <button class="primary" data-goto="2">Next: the sports</button>
@@ -59,37 +54,17 @@
       <!-- Step 2: the sports -->
       <div class="step" data-step="2" hidden>
         <h2>Which sports?</h2>
-        <p class="hint">Each sport is set up on its own — singles or doubles, and the time you booked.</p>
-        <div class="counter">
-          <button class="round-btn" data-count="sports" data-delta="-1" aria-label="Fewer sports">−</button>
-          <output id="sports-count">3</output>
-          <button class="round-btn" data-count="sports" data-delta="1" aria-label="More sports">+</button>
-        </div>
+        <p class="hint">Each sport is set up on its own — the game type and how points are given.
+          The app draws up the matches itself.</p>
+        <div class="count-field" id="sports-count-field"></div>
         <p class="eyebrow">The line-up</p>
         <div id="sport-rows" class="sport-setup"></div>
-        <div class="row-btns">
-          <button class="ghost" data-goto="1">Back</button>
-          <button class="primary" data-goto="3">Next: the points</button>
-        </div>
-      </div>
-
-      <!-- Step 3: points -->
-      <div class="step" data-step="3" hidden>
-        <h2>How are points given?</h2>
-        <p class="hint">You pick the opponents yourself once the championship exists.</p>
-
-        <div class="field">
-          <div class="segmented" id="seg-scoring">
-            <button data-value="match" class="on">Win = 3<small>Draw 1, loss 0</small></button>
-            <button data-value="score">Score counts<small>Every point you score</small></button>
-          </div>
-        </div>
 
         <div class="preview" id="setup-preview"></div>
         <p class="error" id="setup-error" hidden></p>
 
         <div class="row-btns">
-          <button class="ghost" data-goto="2">Back</button>
+          <button class="ghost" data-goto="1">Back</button>
           <button class="primary" id="btn-create">Create championship</button>
         </div>
       </div>
@@ -148,25 +123,7 @@
   <div class="sheet-card">
     <div class="grabber"></div>
     <p class="sheet-sport" id="sheet-sport"></p>
-    <div class="score-row">
-      <div class="court-side">
-        <p class="team-names" id="sheet-team-a"></p>
-        <div class="score-control">
-          <button class="round-btn" data-score="a" data-delta="-1" aria-label="Lower">−</button>
-          <input id="sheet-score-a" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="0">
-          <button class="round-btn" data-score="a" data-delta="1" aria-label="Raise">+</button>
-        </div>
-      </div>
-      <div class="net"><span>VS</span></div>
-      <div class="court-side">
-        <p class="team-names" id="sheet-team-b"></p>
-        <div class="score-control">
-          <button class="round-btn" data-score="b" data-delta="-1" aria-label="Lower">−</button>
-          <input id="sheet-score-b" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="0">
-          <button class="round-btn" data-score="b" data-delta="1" aria-label="Raise">+</button>
-        </div>
-      </div>
-    </div>
+    <div id="sheet-body"></div>
     <div class="row-btns">
       <button class="ghost" id="sheet-cancel">Cancel</button>
       <button class="primary" id="sheet-save">Save result</button>
@@ -175,7 +132,7 @@
   </div>
 </div>
 
-<!-- sport settings: the booked time and the format -->
+<!-- sport settings: the booked time, the game type and the point type -->
 <div id="sport-sheet" class="sheet" hidden>
   <div class="sheet-card">
     <div class="grabber"></div>
@@ -187,12 +144,12 @@
       <button class="link-btn" id="sport-time-clear">Clear</button>
     </div>
 
-    <p class="eyebrow">Format</p>
-    <div class="segmented" id="sport-format">
-      <button data-value="1v1">1 v 1<small>Singles</small></button>
-      <button data-value="2v2">2 v 2<small>Doubles</small></button>
-    </div>
-    <p class="hint" id="sport-format-warn" hidden>Changing the format clears the matches already added to this sport.</p>
+    <p class="eyebrow">Game type</p>
+    <div id="sport-format-field"></div>
+
+    <p class="eyebrow">Point type</p>
+    <div id="sport-scoring-field"></div>
+    <p class="hint">A new game type means a new programme for this sport. Other sports keep theirs.</p>
 
     <div class="row-btns">
       <button class="ghost" id="sport-cancel">Cancel</button>
@@ -208,6 +165,7 @@
     <h2>Championship</h2>
     <button class="ghost wide" id="menu-share">Share the table</button>
     <button class="ghost wide" id="menu-reset">Clear all results</button>
+    <button class="ghost wide" id="menu-rebuild">Draw up a new programme</button>
     <button class="danger wide" id="menu-new">Start a new championship</button>
     <button class="ghost wide" id="menu-close">Close</button>
   </div>

@@ -1,44 +1,54 @@
 # Dad Championships
 
 A mobile web app for running a multi-sport championship across three
-generations. You pick the opponents, you set the times, and one table decides
-who buys the beer.
+generations. You choose the sports, the app draws up every match, and one table
+decides who buys the beer.
 
 Live: https://hvejsel.github.io/dad-championships/
 
 ## What it does
 
-1. Add everyone playing — each one is a dad, a granddad or a kid.
-2. Add the sports. Each sport is set up on its own: singles or doubles, plus
-   the time you booked the court for.
-3. Pick who plays whom in each sport. Nobody has to play everyone.
-4. Enter the score after each match. The table updates itself.
+1. Choose how many are playing and name them — each one is a dad, a granddad
+   or a kid. Every choice on the setup screens is a select.
+2. Choose the sports. Each sport gets its own game type and its own point type.
+3. The app draws up the whole programme itself, so everyone meets everyone.
+4. Put the times on afterwards, as you book the courts. The list re-sorts
+   itself and says what happens next.
+5. Enter the score after each match. The table updates itself.
 
-The match list is the home screen. Sports appear in the order of their booked
-time, so everybody can see what happens when, and the app tells you who is
-still without an opponent in each sport.
+The match list is the home screen. A sport with no time yet is called out, so
+nothing is forgotten.
 
-## Formats
+## Game types
 
-Format is set per sport, not per championship — padel can be doubles on the
-same day darts is singles.
+Game type is set per sport, not per championship — padel can be doubles on the
+same day darts is singles. It can be changed later from the sport's own sheet,
+which draws up a fresh programme for that sport and leaves the others alone.
 
-**1 v 1** — one player on each side.
+**1 v 1** — a full round robin: every player meets every other player exactly
+once, spread across rounds so nobody plays twice in a row.
 
-**2 v 2** — two on each side, and everyone still scores individually.
+**2 v 2** — every possible partnership is used once, and each is put up against
+the pair its four players have met the least. Everyone partners everyone and
+meets everyone; points are still scored individually.
 
-Opponents are always chosen by hand. Changing a sport's format clears the
-matches already added to that sport, and only that sport.
+**All vs all** — one round with everybody in it at the same time, which is how
+mini golf is played. Each player enters his own score.
 
-## Points
+You can still add an extra match by hand in a 1 v 1 or 2 v 2 sport.
 
-**Win = 3** — win 3, draw 1, loss 0. Keeps a high-scoring sport from drowning
-out a low-scoring one, so this is the default.
+## Point types
 
-**Score counts** — every point your team scores is added to your own total,
-which is how a padel americano is normally run.
+Also per sport, so a high-scoring sport cannot drown out a low-scoring one.
 
-Ties are split on score difference, then on points scored.
+**Win = 3** — win 3, draw 1, loss 0. In an all-vs-all round the best score takes
+the 3 points, and a shared best score is a draw.
+
+**Score counts** — every point your side scores is added to your own total. This
+is the natural one for all vs all: point for point, most points wins.
+
+Ties are split on score difference, then on points scored. In a match with more
+than two sides, what you were up against is the best score anyone else put up.
 
 ## Design
 
@@ -72,7 +82,7 @@ Add it to your home screen and it opens full screen like a normal app.
 
 | File | What it holds |
 | --- | --- |
-| `tournament.js` | Fixture generation and standings — pure functions, no DOM |
+| `tournament.js` | The programme and the standings — pure functions, no DOM |
 | `app.js` | Screens, state and storage |
 | `test.mjs` | Engine tests |
 | `sw.js` | Offline cache |

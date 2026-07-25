@@ -181,24 +181,86 @@ h2 {
 .stepper li.active { color: var(--ink); border-top-color: var(--court); font-weight: 600; }
 .stepper li.active span { background: var(--court); color: #fff; }
 
-/* ------------------------------- counters ------------------------------- */
+/* -------------------------------- selects ------------------------------- */
+/* every choice in the app is a select, drawn as a control with its own caret */
 
-.counter {
-  display: flex;
+.sel {
+  position: relative;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 20px;
-  margin: 8px 0 22px;
+  min-width: 0;
 }
-.counter output {
-  font-size: 52px;
+.sel::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 6px; height: 6px;
+  border-right: 1.7px solid var(--ink-faint);
+  border-bottom: 1.7px solid var(--ink-faint);
+  transform: translateY(-72%) rotate(45deg);
+  pointer-events: none;
+}
+.sel select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-size: 16px;
+  color: var(--ink);
+  padding: 0 30px 0 13px;
+  min-height: 40px;
+  width: 100%;
+  cursor: pointer;
+  border-radius: 9px;
+}
+.sel select:focus-visible { outline: 2px solid var(--court); outline-offset: 0; }
+
+/* the headline choice of a step: how many players, how many sports */
+.count-field { margin: 10px 0 24px; }
+.count-field .sel {
+  width: 100%;
+  background: var(--card);
+  border-radius: var(--r-card);
+  box-shadow: var(--lift);
+}
+.count-field .sel::after {
+  right: 20px;
+  width: 9px; height: 9px;
+  border-width: 2px;
+  border-color: var(--court);
+}
+.count-field .sel select {
+  font-size: 26px;
   font-weight: 700;
-  letter-spacing: -1.5px;
-  min-width: 72px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.7px;
+  min-height: 66px;
+  padding: 0 44px 0 20px;
 }
-.counter.small output { font-size: 32px; min-width: 56px; letter-spacing: -0.8px; }
+
+/* a soft grey pill inside a card row */
+.sel-soft {
+  background: rgba(58, 52, 42, 0.07);
+  border-radius: 9px;
+}
+.sel-soft select {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  min-height: 36px;
+  padding: 0 26px 0 11px;
+}
+.sel-soft::after { right: 10px; width: 5px; height: 5px; }
+
+/* the full-width choice inside a sheet */
+.sel-wide {
+  width: 100%;
+  background: var(--card-sunk);
+  border-radius: var(--r-control);
+  margin-bottom: 18px;
+}
+.sel-wide select { min-height: var(--tap); font-size: 16px; font-weight: 500; }
 
 .round-btn {
   width: var(--tap); height: var(--tap);
@@ -293,45 +355,7 @@ button { font-family: inherit; }
 .row-btns { display: flex; gap: 10px; margin-top: 4px; }
 .row-btns .ghost { flex: 0 0 33%; }
 
-/* ------------------------------- segmented ------------------------------ */
-
-.field { margin-bottom: 24px; }
-.field > label {
-  display: block;
-  font-size: 11.5px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.7px;
-  color: var(--ink-soft);
-  margin: 0 0 8px 4px;
-}
-.segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.segmented button {
-  border-radius: var(--r-card);
-  border: 1.5px solid transparent;
-  background: var(--card);
-  box-shadow: var(--lift);
-  color: var(--ink);
-  padding: 14px 14px;
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: -0.2px;
-  cursor: pointer;
-  text-align: left;
-  display: grid;
-  gap: 3px;
-  transition: border-color .15s, background .15s;
-}
-.segmented button small {
-  font-size: 12.5px;
-  font-weight: 400;
-  color: var(--ink-soft);
-  line-height: 1.3;
-  letter-spacing: 0;
-}
-.segmented button.on { border-color: var(--court); background: var(--court-wash); }
-.segmented button.on small { color: var(--court-deep); }
-
+/* -------------------------- the setup preview --------------------------- */
 .preview {
   background: var(--court-wash);
   border-radius: var(--r-card);
@@ -449,6 +473,39 @@ button { font-family: inherit; }
 .score-control input::-webkit-outer-spin-button,
 .score-control input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 
+/* all vs all: one round, so everybody enters his own score in one list */
+.ffa-scores {
+  background: var(--card-sunk);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  margin-bottom: 16px;
+  max-height: 46dvh;
+  overflow-y: auto;
+}
+.ffa-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+}
+.ffa-row + .ffa-row { border-top: 1px solid var(--chalk-soft); }
+.ffa-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 16.5px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+.ffa-row .score-control { margin-top: 0; gap: 10px; }
+.ffa-row .score-control input {
+  width: 68px;
+  font-size: 25px;
+  min-height: 46px;
+  letter-spacing: -0.8px;
+  background: var(--card);
+}
+.ffa-row .round-btn { width: 38px; height: 38px; font-size: 21px; box-shadow: none; background: var(--card); }
+
 .up-next {
   margin-top: 22px;
   padding: 14px 17px;
@@ -553,12 +610,27 @@ button { font-family: inherit; }
 .gen-granddad { background: var(--brass-wash); color: var(--brass-ink); }
 .gen-kid { background: rgba(46, 125, 79, 0.10); color: var(--grass); }
 
-.gen-btn {
-  border: 0;
-  cursor: pointer;
-  margin-right: 12px;
+/* the generation, chosen from a select but still coloured like the tag */
+.sel-gen {
+  border-radius: 6px;
+  margin-right: 10px;
+  flex: none;
+}
+.sel-gen select {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: inherit;
   min-height: 30px;
-  padding: 0 10px;
+  padding: 0 22px 0 8px;
+  border-radius: 6px;
+}
+.sel-gen::after {
+  right: 7px;
+  width: 4.5px; height: 4.5px;
+  border-color: currentColor;
+  opacity: .55;
 }
 
 /* --------------------------- sport setup rows --------------------------- */
@@ -568,66 +640,46 @@ button { font-family: inherit; }
   background: var(--card);
   border-radius: var(--r-card);
   box-shadow: var(--lift);
-  padding: 6px 14px 12px;
+  padding: 6px 12px 12px;
 }
-.sport-row input[type="text"] {
-  padding: 0;
-  min-height: 44px;
+.sel-title { width: 100%; }
+.sel-title select {
   font-weight: 600;
   font-size: 16.5px;
+  letter-spacing: -0.2px;
+  min-height: 44px;
+  padding-left: 2px;
 }
-.sport-row input[type="text"]:focus { outline-offset: 2px; border-radius: 6px; }
-.sport-row-controls { display: flex; align-items: center; gap: 10px; }
+.sel-title::after { right: 8px; }
 
-.mini-seg {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  background: rgba(58, 52, 42, 0.07);
-  border-radius: 9px;
-}
-.mini-seg button {
-  border: 0;
-  background: none;
-  border-radius: 7px;
-  padding: 6px 11px;
-  font-size: 13px;
+.sport-row .custom-name {
+  padding: 0 2px;
+  min-height: 40px;
   font-weight: 600;
-  color: var(--ink-soft);
-  cursor: pointer;
-  min-height: 32px;
-  white-space: nowrap;
+  font-size: 16.5px;
+  background: var(--card-sunk);
+  border-radius: 8px;
+  padding-left: 10px;
+  margin-bottom: 8px;
 }
-.mini-seg button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(40,35,25,.12); }
-
-.time-pill {
+.sport-row-controls {
   display: flex;
   align-items: center;
-  gap: 5px;
-  background: rgba(58, 52, 42, 0.07);
-  border-radius: 9px;
-  padding: 0 10px;
-  min-height: 36px;
-  font-size: 13px;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.row-note {
+  font-size: 12.5px;
   color: var(--ink-soft);
-  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  padding-right: 2px;
+  white-space: nowrap;
 }
-.time-pill input[type="time"] {
-  border: 0;
-  background: none;
-  padding: 0;
-  min-height: 34px;
-  width: auto;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--ink);
-  font-family: inherit;
-}
-.time-pill input[type="time"]:focus { outline: none; }
 
 /* ------------------------- the booked-time chip ------------------------- */
 
-.sport-head-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.sport-head-main { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 auto; }
 .time-chip {
   border: 0;
   background: rgba(58, 52, 42, 0.07);
@@ -644,10 +696,10 @@ button { font-family: inherit; }
 }
 .time-chip.set { background: var(--court-wash); color: var(--court-deep); }
 
-.waiting {
-  margin: 9px 4px 0;
-  font-size: 13px;
-  color: var(--ink-soft);
+/* the times go on as the courts are booked, so the list says what is missing */
+.time-hint {
+  margin: 14px 2px 0;
+  font-size: 13.5px;
   line-height: 1.45;
 }
 
@@ -714,11 +766,6 @@ button { font-family: inherit; }
 .pick-row + .pick-row { border-top: 1px solid var(--chalk-soft); }
 .pick-row:active { background: var(--card-sunk); }
 .pick-name { font-size: 16px; font-weight: 600; letter-spacing: -0.2px; }
-.pick-row .already {
-  font-size: 11.5px;
-  color: var(--ink-faint);
-  margin-left: auto;
-}
 .pick-slot {
   margin-left: auto;
   width: 27px; height: 27px;
@@ -730,7 +777,6 @@ button { font-family: inherit; }
   flex: none;
   color: transparent;
 }
-.pick-row .already + .pick-slot { margin-left: 8px; }
 .pick-row.side-a { background: var(--court-wash); }
 .pick-row.side-a .pick-slot { background: var(--court); color: #fff; }
 .pick-row.side-b { background: var(--brass-wash); }
@@ -972,7 +1018,9 @@ button { font-family: inherit; }
   align-items: baseline;
   justify-content: space-between;
   margin: 24px 4px 9px;
-  gap: 12px;
+  gap: 4px 12px;
+  /* a long sport name keeps its line; the summary drops below it */
+  flex-wrap: wrap;
 }
 .sport-head h3 {
   margin: 0;
@@ -1025,6 +1073,9 @@ button { font-family: inherit; }
   font-weight: 500;
 }
 .fixture .who .and { color: var(--ink-faint); font-weight: 400; }
+/* one all-vs-all round lists everybody on a single line */
+.fixture.ffa .who { font-size: 14.5px; }
+.fixture.ffa .res { font-weight: 600; }
 .fixture .res {
   font-variant-numeric: tabular-nums;
   font-weight: 700;
@@ -1152,8 +1203,6 @@ button { font-family: inherit; }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 10px); } }
 
 @media (max-width: 360px) {
-  .segmented { grid-template-columns: 1fr; }
-  .counter { gap: 14px; }
   .standings-row .record, .standings-head .record { width: 62px; font-size: 12px; }
 }
 

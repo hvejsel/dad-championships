@@ -1,25 +1,35 @@
 import {
   GENERATIONS,
   generationLabel,
+  FORMATS,
+  formatLabel,
+  SCORINGS,
+  scoringLabel,
   teamSize,
+  isFreeForAll,
   orderedSports,
   matchesForSport,
   orderedMatches,
-  unassignedPlayers,
+  fixtureCount,
+  buildProgramme,
+  buildAllProgrammes,
   validateMatch,
   createMatch,
+  winningSide,
   standings,
   nextUnplayed,
   progress,
 } from './tournament.js';
 
-const STATE_KEY = 'dadchamps.state.v2';
-const DRAFT_KEY = 'dadchamps.draft.v2';
+const STATE_KEY = 'dadchamps.state.v3';
+const DRAFT_KEY = 'dadchamps.draft.v3';
 
 const SPORT_SUGGESTIONS = [
   'Padel', 'Darts', 'Bowling', 'Table tennis', 'Mini golf', 'Pool',
   'Badminton', 'Basketball shootout', 'Shuffleboard', 'Boules',
 ];
+
+const OTHER = '__other';
 
 const LIMITS = {
   sports: { min: 1, max: 10 },
@@ -59,9 +69,9 @@ let draft = load(DRAFT_KEY, null) || {
   playerGenerations: ['dad', 'dad', 'granddad', 'kid'],
   sportCount: 3,
   sportNames: SPORT_SUGGESTIONS.slice(0, 3),
+  sportCustom: [false, false, false],
   sportFormats: ['1v1', '1v1', '1v1'],
-  sportTimes: ['', '', ''],
-  scoring: 'match',
+  sportScorings: ['match', 'match', 'match'],
 };
 
 let view = 'matches';
@@ -84,12 +94,12 @@ function nameOf(playerId) {
   return player ? player.name : '?';
 }
 
-function teamHtml(team) {
-  return team.map((id) => escapeHtml(nameOf(id))).join(' <span class="and">&</span> ');
+function teamHtml(players) {
+  return players.map((id) => escapeHtml(nameOf(id))).join(' <span class="and">&</span> ');
 }
 
-function teamText(team) {
-  return team.map((id) => nameOf(id)).join(' & ');
+function teamText(players) {
+  return players.map((id) => nameOf(id)).join(' & ');
 }
 
 function sportOf(sportId) {
@@ -105,6 +115,29 @@ function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
   );
+}
+
+/** A select, drawn as a control rather than a browser default. */
+function selectHtml({ id = '', attr = '', options, value, extra = '' }) {
+  const opts = options
+    .map(
+      (o) =>
+        `<option value="${escapeHtml(o.value)}"${o.value === value ? ' selected' : ''}>${escapeHtml(
+          o.label
+        )}</option>`
+    )
+    .join('');
+  return `<span class="sel ${extra}">
+    <select ${id ? `id="${id}"` : ''} ${attr}>${opts}</select>
+  </span>`;
+}
+
+function countOptions(kind, noun) {
+  const { min, max } = LIMITS[kind];
+  return Array.from({ length: max - min + 1 }, (_, i) => ({
+    value: String(min + i),
+    label: `${min + i} ${noun}${min + i === 1 ? '' : 's'}`,
+  }));
 }
 
 /** Brass, silver and bronze discs for the podium; a plain numeral below it. */
@@ -141,11 +174,6 @@ function toast(message) {
 
 /* ================================ SETUP ================================ */
 
-function clampCount(kind, value) {
-  const limit = LIMITS[kind];
-  return Math.min(limit.max, Math.max(limit.min, value));
-}
-
 function renderSetup() {
   $$('#stepper li').forEach((li) => {
     const step = Number(li.dataset.step);
@@ -154,13 +182,21 @@ function renderSetup() {
   });
   $$('.step').forEach((el) => { el.hidden = Number(el.dataset.step) !== draft.step; });
 
-  $('#players-count').textContent = draft.playerCount;
-  $('#sports-count').textContent = draft.sportCount;
+  $('#players-count-field').innerHTML = selectHtml({
+    attr: 'data-count="players"',
+    options: countOptions('players', 'player'),
+    value: String(draft.playerCount),
+    extra: 'sel-big',
+  });
+  $('#sports-count-field').innerHTML = selectHtml({
+    attr: 'data-count="sports"',
+    options: countOptions('sports', 'sport'),
+    value: String(draft.sportCount),
+    extra: 'sel-big',
+  });
 
   renderPlayerRows();
   renderSportRows();
-
-  $$('#seg-scoring button').forEach((b) => b.classList.toggle('on', b.dataset.value === draft.scoring));
   renderPreview();
 }
 
@@ -177,8 +213,12 @@ function renderPlayerRows() {
              value="${escapeHtml(draft.playerNames[i] || '')}"
              placeholder="Name ${i + 1}"
              autocapitalize="words" autocomplete="off" spellcheck="false">
-      <button class="gen gen-${generation} gen-btn" data-gen-index="${i}"
-              aria-label="Change generation">${escapeHtml(generationLabel(generation))}</button>`;
+      ${selectHtml({
+        attr: `data-gen-index="${i}" aria-label="Generation"`,
+        options: GENERATIONS.map((g) => ({ value: g.id, label: g.label })),
+        value: generation,
+        extra: `sel-gen gen-${generation}`,
+      })}`;
     container.appendChild(row);
   }
 }
@@ -187,23 +227,47 @@ function renderSportRows() {
   const container = $('#sport-rows');
   container.innerHTML = '';
   for (let i = 0; i < draft.sportCount; i++) {
+    const custom = Boolean(draft.sportCustom[i]);
+    const name = draft.sportNames[i] || '';
     const format = draft.sportFormats[i] || '1v1';
+    const scoring = draft.sportScorings[i] || 'match';
+    const matches = fixtureCount(draft.playerCount, format);
+
     const row = document.createElement('div');
     row.className = 'sport-row';
     row.innerHTML = `
-      <input type="text" data-kind="sport" data-index="${i}"
-             value="${escapeHtml(draft.sportNames[i] || '')}"
-             placeholder="${escapeHtml(SPORT_SUGGESTIONS[i] || `Sport ${i + 1}`)}"
-             autocapitalize="words" autocomplete="off" spellcheck="false">
+      ${selectHtml({
+        attr: `data-sport-index="${i}" aria-label="Sport ${i + 1}"`,
+        options: [
+          ...SPORT_SUGGESTIONS.map((s) => ({ value: s, label: s })),
+          { value: OTHER, label: 'Other sport…' },
+        ],
+        value: custom ? OTHER : name,
+        extra: 'sel-title',
+      })}
+      ${
+        custom
+          ? `<input type="text" data-kind="sport" data-index="${i}" class="custom-name"
+                    value="${escapeHtml(name)}" placeholder="Name the sport"
+                    autocapitalize="words" autocomplete="off" spellcheck="false">`
+          : ''
+      }
       <div class="sport-row-controls">
-        <div class="mini-seg" data-format-index="${i}">
-          <button data-value="1v1" class="${format === '1v1' ? 'on' : ''}">1 v 1</button>
-          <button data-value="2v2" class="${format === '2v2' ? 'on' : ''}">2 v 2</button>
-        </div>
-        <label class="time-pill">
-          <span aria-hidden="true">at</span>
-          <input type="time" data-time-index="${i}" value="${escapeHtml(draft.sportTimes[i] || '')}">
-        </label>
+        ${selectHtml({
+          attr: `data-format-index="${i}" aria-label="Game type"`,
+          options: FORMATS.map((f) => ({ value: f.id, label: f.label })),
+          value: format,
+          extra: 'sel-soft',
+        })}
+        ${selectHtml({
+          attr: `data-scoring-index="${i}" aria-label="Point type"`,
+          options: SCORINGS.map((s) => ({ value: s.id, label: s.label })),
+          value: scoring,
+          extra: 'sel-soft',
+        })}
+        <span class="row-note">${
+          matches ? `${matches} ${matches === 1 ? 'match' : 'matches'}` : 'needs more players'
+        }</span>
       </div>`;
     container.appendChild(row);
   }
@@ -219,13 +283,17 @@ function renderPreview() {
   const parts = GENERATIONS
     .filter((g) => counts[g.id] > 0)
     .map((g) => `${counts[g.id]} ${counts[g.id] === 1 ? g.label.toLowerCase() : `${g.label.toLowerCase()}s`}`);
-  const timed = draft.sportTimes.slice(0, draft.sportCount).filter(Boolean).length;
+
+  const total = draft.sportFormats
+    .slice(0, draft.sportCount)
+    .reduce((sum, format) => sum + fixtureCount(draft.playerCount, format || '1v1'), 0);
 
   $('#setup-preview').innerHTML =
     `<strong>${parts.join(', ')}</strong> across ` +
-    `<strong>${draft.sportCount}</strong> ${draft.sportCount === 1 ? 'sport' : 'sports'}` +
-    `${timed ? `, ${timed} with a time booked` : ''}.<br>` +
-    `Next you pick who plays whom in each sport.`;
+    `<strong>${draft.sportCount}</strong> ${draft.sportCount === 1 ? 'sport' : 'sports'}. ` +
+    `The app draws up <strong>${total}</strong> ${total === 1 ? 'match' : 'matches'} by itself, ` +
+    `so everyone meets everyone.<br>` +
+    `You put the times on afterwards, as you book the courts.`;
 
   const error = validateDraft();
   $('#setup-error').hidden = !error;
@@ -236,11 +304,11 @@ function renderPreview() {
 function validateDraft() {
   if (draft.playerCount < 2) return 'You need at least 2 players.';
   if (draft.sportCount < 1) return 'Pick at least one sport.';
-  const needsFour = draft.sportFormats
-    .slice(0, draft.sportCount)
-    .some((f) => f === '2v2');
-  if (needsFour && draft.playerCount < 4) {
-    return 'A doubles sport needs at least 4 players. Add more, or set that sport to 1 v 1.';
+  for (let i = 0; i < draft.sportCount; i++) {
+    const format = FORMATS.find((f) => f.id === (draft.sportFormats[i] || '1v1'));
+    if (draft.playerCount < format.min) {
+      return `${format.label} needs at least ${format.min} players. Add more, or change that sport's game type.`;
+    }
   }
   return null;
 }
@@ -259,18 +327,19 @@ function createChampionship() {
     name,
     order: i,
     format: draft.sportFormats[i] || '1v1',
-    time: draft.sportTimes[i] || null,
+    scoring: draft.sportScorings[i] || 'match',
+    time: null, // set later, on the match list, as the courts are booked
   }));
 
   state = {
-    version: 2,
+    version: 3,
     createdAt: new Date().toISOString(),
-    scoring: draft.scoring,
     players,
     sports,
     matches: [],
     nextMatchNo: 0,
   };
+  buildAllProgrammes(state);
 
   saveState();
   view = 'matches';
@@ -280,11 +349,43 @@ function createChampionship() {
 
 /* =============================== MATCHES =============================== */
 
+function fixtureRow(match, upNext) {
+  const isNow = upNext && match.id === upNext.id;
+  const classes = `fixture ${match.done ? 'played' : ''} ${isNow ? 'now' : ''}`;
+
+  if (match.sides.length > 2) {
+    const winner = winningSide(match);
+    const result = match.done
+      ? winner
+        ? `${escapeHtml(nameOf(winner.players[0]))} ${winner.score}`
+        : 'Tied'
+      : isNow
+        ? '<em>Up next</em>'
+        : '—';
+    return `
+      <button class="${classes} ffa" data-match="${match.id}">
+        <span class="who">${match.sides
+          .map((side) => escapeHtml(nameOf(side.players[0])))
+          .join(' <span class="and">·</span> ')}</span>
+        <span class="res">${result}</span>
+      </button>`;
+  }
+
+  const [a, b] = match.sides;
+  return `
+    <button class="${classes}" data-match="${match.id}">
+      <span class="who">${teamHtml(a.players)}<br>${teamHtml(b.players)}</span>
+      <span class="res">${
+        match.done ? `${a.score} – ${b.score}` : isNow ? '<em>Up next</em>' : '—'
+      }</span>
+    </button>`;
+}
+
 function renderMatches() {
   const body = $('#matches-body');
-  const all = orderedMatches(state);
   const { done, total } = progress(state.matches);
   const upNext = nextUnplayed(state);
+  const timed = state.sports.filter((s) => s.time).length;
 
   const header = total
     ? `<div class="bar"><i style="width:${(done / total) * 100}%"></i></div>
@@ -295,17 +396,32 @@ function renderMatches() {
     upNext && sportOf(upNext.sportId).time
       ? `<div class="up-next">
            <span class="label">Next up — ${escapeHtml(sportOf(upNext.sportId).time)}</span>
-           <strong>${escapeHtml(sportName(upNext.sportId))}: ${escapeHtml(
-             teamText(upNext.teamA)
-           )} vs ${escapeHtml(teamText(upNext.teamB))}</strong>
+           <strong>${escapeHtml(sportName(upNext.sportId))}: ${
+             upNext.sides.length > 2
+               ? 'everybody'
+               : `${escapeHtml(teamText(upNext.sides[0].players))} vs ${escapeHtml(
+                   teamText(upNext.sides[1].players)
+                 )}`
+           }</strong>
          </div>`
+      : '';
+
+  // Times are put on as the courts are booked, so the list says what is missing.
+  const timeHint =
+    timed < state.sports.length
+      ? `<p class="hint time-hint">${
+          timed === 0
+            ? 'Tap a sport to set the time when you have booked it.'
+            : `${state.sports.length - timed} ${
+                state.sports.length - timed === 1 ? 'sport has' : 'sports have'
+              } no time yet — tap to set it.`
+        } The list sorts itself by time.</p>`
       : '';
 
   const blocks = orderedSports(state.sports)
     .map((sport) => {
       const matches = matchesForSport(state.matches, sport.id);
       const playedHere = matches.filter((m) => m.done).length;
-      const waiting = unassignedPlayers(state, sport.id);
 
       return `
         <div class="sport-block">
@@ -316,51 +432,31 @@ function renderMatches() {
                 ${sport.time ? escapeHtml(sport.time) : 'Set time'}
               </button>
             </div>
-            <span>${sport.format} · ${
-              matches.length ? `${playedHere} of ${matches.length} played` : 'no matches yet'
+            <span>${escapeHtml(formatLabel(sport.format))} · ${escapeHtml(
+              scoringLabel(sport.scoring)
+            )} · ${
+              matches.length ? `${playedHere} of ${matches.length} played` : 'no matches'
             }</span>
           </div>
 
           ${
             matches.length
-              ? `<div class="fixtures">
-                  ${matches
-                    .map(
-                      (m) => `
-                    <button class="fixture ${m.done ? 'played' : ''} ${
-                        upNext && m.id === upNext.id ? 'now' : ''
-                      }" data-match="${m.id}">
-                      <span class="who">${teamHtml(m.teamA)}<br>${teamHtml(m.teamB)}</span>
-                      <span class="res">${
-                        m.done
-                          ? `${m.scoreA} – ${m.scoreB}`
-                          : upNext && m.id === upNext.id
-                            ? '<em>Up next</em>'
-                            : '—'
-                      }</span>
-                    </button>`
-                    )
-                    .join('')}
-                </div>`
+              ? `<div class="fixtures">${matches.map((m) => fixtureRow(m, upNext)).join('')}</div>`
               : ''
           }
 
           ${
-            waiting.length
-              ? `<p class="waiting">Without an opponent: ${waiting
-                  .map((p) => escapeHtml(p.name))
-                  .join(', ')}</p>`
-              : ''
+            isFreeForAll(sport.format)
+              ? ''
+              : `<button class="add-match" data-add="${sport.id}">
+                   <span aria-hidden="true">+</span> Add an extra match
+                 </button>`
           }
-
-          <button class="add-match" data-add="${sport.id}">
-            <span aria-hidden="true">+</span> Add a match
-          </button>
         </div>`;
     })
     .join('');
 
-  body.innerHTML = header + banner + blocks;
+  body.innerHTML = header + banner + timeHint + blocks;
 
   $$('#matches-body .fixture').forEach((btn) => {
     btn.onclick = () => openScoreSheet(btn.dataset.match);
@@ -373,12 +469,12 @@ function renderMatches() {
   });
 }
 
-/* ============================ MATCH BUILDER ============================ */
+/* ========================== EXTRA MATCH BUILDER ========================= */
 
 function openPickSheet(sportId) {
   const sport = sportOf(sportId);
   picking = { sportId, sides: new Map() };
-  $('#pick-title').textContent = `${sport.name} — ${sport.format}`;
+  $('#pick-title').textContent = `${sport.name} — ${formatLabel(sport.format)}`;
   $('#pick-error').hidden = true;
   renderPickList();
   $('#pick-sheet').hidden = false;
@@ -389,10 +485,6 @@ function renderPickList() {
   const size = teamSize(sport.format);
   const countA = [...picking.sides.values()].filter((v) => v === 'a').length;
   const countB = [...picking.sides.values()].filter((v) => v === 'b').length;
-  const busy = new Set();
-  for (const m of matchesForSport(state.matches, picking.sportId)) {
-    for (const id of [...m.teamA, ...m.teamB]) busy.add(id);
-  }
 
   $('#pick-counts').innerHTML =
     `<span class="side-a">Side A ${countA}/${size}</span>` +
@@ -405,7 +497,6 @@ function renderPickList() {
       <button class="pick-row ${side ? `on side-${side}` : ''}" data-pick="${p.id}">
         <span class="pick-name">${escapeHtml(p.name)}</span>
         ${genTag(p.generation)}
-        ${busy.has(p.id) ? '<span class="already">already playing</span>' : ''}
         <span class="pick-slot">${side ? side.toUpperCase() : ''}</span>
       </button>`;
     })
@@ -450,24 +541,48 @@ function openSportSheet(sportId) {
   editingSportId = sportId;
   $('#sport-sheet-title').textContent = sport.name;
   $('#sport-time').value = sport.time || '';
-  $$('#sport-format button').forEach((b) => b.classList.toggle('on', b.dataset.value === sport.format));
-  $('#sport-format-warn').hidden = matchesForSport(state.matches, sportId).length === 0;
+
+  $('#sport-format-field').innerHTML = selectHtml({
+    id: 'sport-format',
+    options: FORMATS.map((f) => ({ value: f.id, label: `${f.label} — ${f.note}` })),
+    value: sport.format,
+    extra: 'sel-wide',
+  });
+  $('#sport-scoring-field').innerHTML = selectHtml({
+    id: 'sport-scoring',
+    options: SCORINGS.map((s) => ({ value: s.id, label: `${s.label} — ${s.note}` })),
+    value: sport.scoring,
+    extra: 'sel-wide',
+  });
+
   $('#sport-sheet').hidden = false;
 }
 
 function saveSportSheet() {
   const sport = sportOf(editingSportId);
   const time = $('#sport-time').value || null;
-  const format = $('#sport-format button.on').dataset.value;
+  const format = $('#sport-format').value;
+  const scoring = $('#sport-scoring').value;
 
   if (format !== sport.format) {
-    const existing = matchesForSport(state.matches, sport.id);
-    if (existing.length && !confirm(`Change to ${format}? The ${existing.length} matches already added to ${sport.name} are removed.`)) {
+    const shortage = FORMATS.find((f) => f.id === format);
+    if (state.players.length < shortage.min) {
+      toast(`${shortage.label} needs at least ${shortage.min} players`);
       return;
     }
-    state.matches = state.matches.filter((m) => m.sportId !== sport.id);
+    const finished = matchesForSport(state.matches, sport.id).filter((m) => m.done).length;
+    const question = finished
+      ? `Change ${sport.name} to ${formatLabel(format)}? A new programme is drawn up and the ${finished} ${
+          finished === 1 ? 'result' : 'results'
+        } already entered for this sport are lost.`
+      : `Change ${sport.name} to ${formatLabel(format)}? A new programme is drawn up for this sport.`;
+    if (!confirm(question)) return;
+
     sport.format = format;
+    state.matches = state.matches.filter((m) => m.sportId !== sport.id);
+    state.matches.push(...buildProgramme(state, sport.id));
   }
+  sport.scoring = scoring;
   sport.time = time;
 
   saveState();
@@ -479,15 +594,60 @@ function saveSportSheet() {
 
 /* ============================== SCORE SHEET ============================= */
 
+function scoreStepper(key, value) {
+  return `
+    <div class="score-control">
+      <button class="round-btn" data-score="${key}" data-delta="-1" aria-label="Lower">−</button>
+      <input id="score-${key}" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="${value}">
+      <button class="round-btn" data-score="${key}" data-delta="1" aria-label="Raise">+</button>
+    </div>`;
+}
+
 function openScoreSheet(matchId) {
   const match = state.matches.find((m) => m.id === matchId);
   if (!match) return;
   editingMatchId = matchId;
   $('#sheet-sport').textContent = sportName(match.sportId);
-  $('#sheet-team-a').innerHTML = teamHtml(match.teamA);
-  $('#sheet-team-b').innerHTML = teamHtml(match.teamB);
-  $('#sheet-score-a').value = match.scoreA ?? 0;
-  $('#sheet-score-b').value = match.scoreB ?? 0;
+
+  if (match.sides.length > 2) {
+    // All vs all: everybody enters his own score in one list.
+    $('#sheet-body').innerHTML = `
+      <div class="ffa-scores">
+        ${match.sides
+          .map(
+            (side, i) => `
+          <div class="ffa-row">
+            <span class="ffa-name">${escapeHtml(nameOf(side.players[0]))}
+              ${genTag(playerOf(side.players[0]).generation)}</span>
+            ${scoreStepper(String(i), side.score ?? 0)}
+          </div>`
+          )
+          .join('')}
+      </div>`;
+  } else {
+    $('#sheet-body').innerHTML = `
+      <div class="score-row">
+        <div class="court-side">
+          <p class="team-names">${teamHtml(match.sides[0].players)}</p>
+          ${scoreStepper('0', match.sides[0].score ?? 0)}
+        </div>
+        <div class="net"><span>VS</span></div>
+        <div class="court-side">
+          <p class="team-names">${teamHtml(match.sides[1].players)}</p>
+          ${scoreStepper('1', match.sides[1].score ?? 0)}
+        </div>
+      </div>`;
+  }
+
+  $$('#sheet-body [data-score]').forEach((btn) => {
+    btn.onclick = () => {
+      const input = $(`#score-${btn.dataset.score}`);
+      input.value = Math.max(0, (Number(input.value) || 0) + Number(btn.dataset.delta));
+    };
+  });
+
+  // A generated match belongs to the programme; only an extra one is removable.
+  $('#sheet-remove').hidden = match.sides.length > 2;
   $('#sheet').hidden = false;
 }
 
@@ -496,17 +656,27 @@ function closeSheet() {
   editingMatchId = null;
 }
 
-function recordResult(matchId, scoreA, scoreB) {
-  const match = state.matches.find((m) => m.id === matchId);
-  if (!match) return;
-  match.scoreA = Math.max(0, Math.round(scoreA));
-  match.scoreB = Math.max(0, Math.round(scoreB));
+function saveScoreSheet() {
+  const match = state.matches.find((m) => m.id === editingMatchId);
+  if (!match) return closeSheet();
+  match.sides.forEach((side, i) => {
+    const input = $(`#score-${i}`);
+    side.score = Math.max(0, Math.round(Number(input && input.value) || 0));
+  });
   match.done = true;
+  closeSheet();
   saveState();
   render();
+  toast('Result saved');
 }
 
 /* ================================ TABLE ================================= */
+
+function pointsHeaderFor(filter) {
+  if (filter === 'all') return 'Pts';
+  const sport = sportOf(filter);
+  return sport && sport.scoring === 'score' ? 'Score' : 'Pts';
+}
 
 function renderTable() {
   const chips = $('#table-chips');
@@ -529,13 +699,13 @@ function renderTable() {
 
   if (!anyPlayed) {
     $('#table-body').innerHTML =
-      '<p class="empty">Nothing on the board yet.<br>Add a match, play it, and the standings fill themselves in.</p>';
+      '<p class="empty">Nothing on the board yet.<br>Play a match, enter the score, and the standings fill themselves in.</p>';
     return;
   }
 
   const scope = state.matches.filter((m) => tableFilter === 'all' || m.sportId === tableFilter);
   const playedHere = scope.filter((m) => m.done).length;
-  const pointsHeader = state.scoring === 'score' ? 'Score' : 'Pts';
+  const pointsHeader = pointsHeaderFor(tableFilter);
 
   // The one question this screen exists to answer, answered before the detail.
   const leaderRow = rows[0];
@@ -666,56 +836,56 @@ function render() {
 
 /* =============================== WIRING ================================= */
 
+document.addEventListener('change', (event) => {
+  const select = event.target.closest('select');
+  if (!select) return;
+
+  if (select.dataset.count) {
+    const field = select.dataset.count === 'sports' ? 'sportCount' : 'playerCount';
+    draft[field] = Number(select.value);
+    saveDraft();
+    renderSetup();
+    return;
+  }
+  if (select.dataset.genIndex !== undefined) {
+    draft.playerGenerations[Number(select.dataset.genIndex)] = select.value;
+    saveDraft();
+    renderSetup();
+    return;
+  }
+  if (select.dataset.sportIndex !== undefined) {
+    const index = Number(select.dataset.sportIndex);
+    if (select.value === OTHER) {
+      draft.sportCustom[index] = true;
+      draft.sportNames[index] = '';
+    } else {
+      draft.sportCustom[index] = false;
+      draft.sportNames[index] = select.value;
+    }
+    saveDraft();
+    renderSetup();
+    return;
+  }
+  if (select.dataset.formatIndex !== undefined) {
+    draft.sportFormats[Number(select.dataset.formatIndex)] = select.value;
+    saveDraft();
+    renderSetup();
+    return;
+  }
+  if (select.dataset.scoringIndex !== undefined) {
+    draft.sportScorings[Number(select.dataset.scoringIndex)] = select.value;
+    saveDraft();
+    renderSetup();
+  }
+});
+
 document.addEventListener('click', (event) => {
-  const countBtn = event.target.closest('[data-count]');
-  if (countBtn) {
-    const kind = countBtn.dataset.count;
-    const field = kind === 'sports' ? 'sportCount' : 'playerCount';
-    draft[field] = clampCount(kind, draft[field] + Number(countBtn.dataset.delta));
-    saveDraft();
-    renderSetup();
-    return;
-  }
-
-  const genBtn = event.target.closest('[data-gen-index]');
-  if (genBtn) {
-    const index = Number(genBtn.dataset.genIndex);
-    const current = GENERATIONS.findIndex((g) => g.id === (draft.playerGenerations[index] || 'dad'));
-    draft.playerGenerations[index] = GENERATIONS[(current + 1) % GENERATIONS.length].id;
-    saveDraft();
-    renderSetup();
-    return;
-  }
-
-  const formatBtn = event.target.closest('.mini-seg button');
-  if (formatBtn) {
-    const index = Number(formatBtn.closest('.mini-seg').dataset.formatIndex);
-    draft.sportFormats[index] = formatBtn.dataset.value;
-    saveDraft();
-    renderSetup();
-    return;
-  }
-
   const goto = event.target.closest('[data-goto]');
   if (goto) {
     draft.step = Number(goto.dataset.goto);
     saveDraft();
     renderSetup();
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    return;
-  }
-
-  const seg = event.target.closest('#seg-scoring button');
-  if (seg) {
-    draft.scoring = seg.dataset.value;
-    saveDraft();
-    renderSetup();
-    return;
-  }
-
-  const sportSeg = event.target.closest('#sport-format button');
-  if (sportSeg) {
-    $$('#sport-format button').forEach((b) => b.classList.toggle('on', b === sportSeg));
     return;
   }
 
@@ -728,42 +898,19 @@ document.addEventListener('click', (event) => {
 
 document.addEventListener('input', (event) => {
   const nameInput = event.target.closest('input[data-kind]');
-  if (nameInput) {
-    const index = Number(nameInput.dataset.index);
-    const list = nameInput.dataset.kind === 'sport' ? draft.sportNames : draft.playerNames;
-    list[index] = nameInput.value;
-    saveDraft();
-    if (nameInput.dataset.kind === 'player') renderPreview();
-    return;
-  }
-
-  const timeInput = event.target.closest('[data-time-index]');
-  if (timeInput) {
-    draft.sportTimes[Number(timeInput.dataset.timeIndex)] = timeInput.value;
-    saveDraft();
-    renderPreview();
-  }
+  if (!nameInput) return;
+  const index = Number(nameInput.dataset.index);
+  const list = nameInput.dataset.kind === 'sport' ? draft.sportNames : draft.playerNames;
+  list[index] = nameInput.value;
+  saveDraft();
+  renderPreview();
 });
 
 $('#btn-create').onclick = createChampionship;
 
-$$('[data-score]').forEach((btn) => {
-  btn.onclick = () => {
-    const input = $(`#sheet-score-${btn.dataset.score}`);
-    input.value = Math.max(0, (Number(input.value) || 0) + Number(btn.dataset.delta));
-  };
-});
-
 $('#sheet-cancel').onclick = closeSheet;
 $('#sheet').onclick = (event) => { if (event.target.id === 'sheet') closeSheet(); };
-$('#sheet-save').onclick = () => {
-  const id = editingMatchId;
-  const a = Number($('#sheet-score-a').value) || 0;
-  const b = Number($('#sheet-score-b').value) || 0;
-  closeSheet();
-  recordResult(id, a, b);
-  toast('Result saved');
-};
+$('#sheet-save').onclick = saveScoreSheet;
 $('#sheet-remove').onclick = () => {
   if (!confirm('Remove this match from the championship?')) return;
   const id = editingMatchId;
@@ -794,13 +941,26 @@ $('#menu-close').onclick = () => { $('#menu').hidden = true; };
 $('#menu').onclick = (event) => { if (event.target.id === 'menu') $('#menu').hidden = true; };
 
 $('#menu-reset').onclick = () => {
-  if (!confirm('Clear every result but keep the players, the sports and the matches?')) return;
-  state.matches.forEach((m) => { m.scoreA = null; m.scoreB = null; m.done = false; });
+  if (!confirm('Clear every result but keep the players, the sports and the programme?')) return;
+  state.matches.forEach((m) => {
+    m.sides.forEach((side) => { side.score = null; });
+    m.done = false;
+  });
   saveState();
   $('#menu').hidden = true;
   view = 'matches';
   render();
   toast('Results cleared');
+};
+
+$('#menu-rebuild').onclick = () => {
+  if (!confirm('Draw up a fresh programme for every sport? All results are cleared.')) return;
+  buildAllProgrammes(state);
+  saveState();
+  $('#menu').hidden = true;
+  view = 'matches';
+  render();
+  toast('New programme drawn up');
 };
 
 $('#menu-new').onclick = () => {
