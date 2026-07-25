@@ -1,3 +1,4 @@
+import { mergeChampionships } from './sync.mjs';
 import {
   GENERATIONS,
   generationLabel,
@@ -43,7 +44,7 @@ import {
 
 /* Shown at the foot of the menu. When something is reported as still broken,
    this is the first thing to ask for: it says whether the fix ever arrived. */
-const APP_VERSION = 12;
+const APP_VERSION = 13;
 const APP_DATE = '25 Jul 2026';
 
 const LIBRARY_KEY = 'dadchamps.library.v1';
@@ -156,12 +157,31 @@ const saveLibrary = () => save(LIBRARY_KEY, library);
 
 /** Every write to the open championship goes through here, so the library
     always holds it and the list stays in "last touched first" order.        */
+/** A change to the field itself — the name, the players, the sports. */
+function touchField() {
+  if (state) state.metaAt = new Date().toISOString();
+}
+
+/** A change to one match, so the merge can tell whose result is newer. */
+function touchMatch(match) {
+  if (match) match.updatedAt = new Date().toISOString();
+}
+
+/** A thing taken out, remembered so it cannot come back from another phone. */
+function rememberRemoved(...ids) {
+  if (!state) return;
+  state.removed = state.removed || {};
+  const now = new Date().toISOString();
+  for (const id of ids) state.removed[id] = now;
+}
+
 function saveState() {
   if (!state) return saveLibrary();
   state.updatedAt = new Date().toISOString();
   library.championships = [state, ...library.championships.filter((c) => c.id !== state.id)];
   library.currentId = state.id;
   saveLibrary();
+  if (typeof pushSoon === 'function') pushSoon();
 }
 
 const saveDraft = () => save(DRAFT_KEY, draft);
@@ -549,6 +569,8 @@ function createChampionship() {
     name: (draft.name || '').trim() || DEFAULT_NAME,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    metaAt: new Date().toISOString(),
+    removed: {},
     players,
     standIns: [{ id: 'x1', name: DEFAULT_STAND_IN }],
     sports,
@@ -789,6 +811,7 @@ function renderSportPage() {
   $('#sport-add-match').onclick = () => {
     try {
       const match = createMatch(state, sport.id);
+      touchMatch(match);
       state.matches.push(match);
       saveState();
       render();
@@ -970,6 +993,7 @@ function saveMatchSheet() {
   }));
   match.done = allScored;
   match.pedro = editing.pedro;
+  touchMatch(match);
 
   saveState();
   closeMatchSheet();
@@ -1052,6 +1076,7 @@ async function saveSportSheet() {
   sport.winPoints = winPoints;
   sport.time = time;
 
+  touchField();
   saveState();
   $('#sport-sheet').hidden = true;
   editingSportId = null;
@@ -1067,8 +1092,10 @@ async function deleteSport() {
     danger: true,
   });
   if (!go) return;
+  rememberRemoved(sport.id, ...matchesForSport(state.matches, sport.id).map((m) => m.id));
   state.sports = state.sports.filter((s) => s.id !== sport.id);
   state.matches = state.matches.filter((m) => m.sportId !== sport.id);
+  touchField();
   if (tableFilter === sport.id) tableFilter = 'all';
   saveState();
   $('#sport-sheet').hidden = true;
@@ -1161,8 +1188,10 @@ function addNewSport() {
     toast(`${formatLabel(sport.format)} needs more players`);
     return;
   }
+  built.forEach(touchMatch);
   state.matches.push(...built);
 
+  touchField();
   saveState();
   $('#new-sport-sheet').hidden = true;
   newSport = null;
@@ -1323,6 +1352,179 @@ async function share() {
   $('#share-text').value = text;
   $('#share-sheet').hidden = false;
   $('#share-text').select();
+}
+
+/* ========================= CHAMPIONSHIPS ONLINE ========================== */
+/* When the app is served from its own address rather than as static files, it
+   has somewhere shared to keep championships. Everyone opens the same address,
+   picks the championship off the list, and enters scores on their own phone.
+   No login: the list is the way in, which is right for a family and wrong for
+   anything else.
+
+   The phone stays in charge of its own copy. It sends the whole championship
+   up, the server merges it with what is there, and sends the result back — so
+   a score entered with no signal is not lost, it just arrives late.          */
+
+const SYNC_EVERY = 4000;
+let pushTimer = null;
+function pushSoon() {
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => pushAndPull(), 400);
+}
+let syncTimer = null;
+let syncing = false;
+let onlineNote = '';
+let hasServer = false;
+
+/** Whether this copy of the app has a server behind it at all. */
+async function serverIsThere() {
+  try {
+    const res = await fetch('api/health', { cache: 'no-store' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+const isShared = () => Boolean(state && state.code);
+
+async function pushAndPull() {
+  if (!isShared() || syncing || !navigator.onLine) return;
+  syncing = true;
+  try {
+    const res = await fetch(`api/champs/${state.code}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ championship: state }),
+    });
+    if (!res.ok) return;
+    const { championship } = await res.json();
+    if (!championship) return;
+
+    // what came back already holds everything this phone sent
+    const merged = mergeChampionships(championship, state);
+    const changed = JSON.stringify(merged) !== JSON.stringify(state);
+    Object.assign(state, merged);
+    library.championships = [state, ...library.championships.filter((c) => c.id !== state.id)];
+    saveLibrary();
+    if (changed) render();
+    onlineNote = '';
+  } catch {
+    onlineNote = 'no signal — your scores go up when it is back';
+  } finally {
+    syncing = false;
+  }
+}
+
+function keepInStep() {
+  clearInterval(syncTimer);
+  if (!isShared()) return;
+  syncTimer = setInterval(() => {
+    if (!document.hidden) pushAndPull();
+  }, SYNC_EVERY);
+  pushAndPull();
+}
+
+async function putOnline() {
+  if (!state) return;
+  if (state.code) {
+    toast('This one is already online');
+    return;
+  }
+  try {
+    const res = await fetch('api/champs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ championship: state }),
+    });
+    if (!res.ok) throw new Error('refused');
+    const { code } = await res.json();
+    state.code = code;
+    saveState();
+    keepInStep();
+    renderOnlineList();
+    render();
+    toast(`Online — everybody can find it now`);
+  } catch {
+    toast('Could not put it online');
+  }
+}
+
+async function openOnline(code) {
+  try {
+    const res = await fetch(`api/champs/${code}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error('gone');
+    const { championship } = await res.json();
+    const champ = migrateState(championship);
+    if (!champ) throw new Error('empty');
+    champ.code = code;
+    if (!champ.id) champ.id = newChampionshipId();
+
+    // a phone that already follows this one keeps its own unsent scores
+    const mine = library.championships.find((c) => c.code === code || c.id === champ.id);
+    state = mine ? Object.assign(mine, mergeChampionships(champ, mine)) : champ;
+    if (!mine) library.championships.unshift(state);
+    library.currentId = state.id;
+    saveLibrary();
+
+    $('#online-sheet').hidden = true;
+    view = 'sports';
+    openSportId = null;
+    tableFilter = 'all';
+    render();
+    keepInStep();
+    toast(`${state.name} opened`);
+  } catch {
+    toast('That championship is not there any more');
+  }
+}
+
+function renderOnlineList(list) {
+  const box = $('#online-list');
+  if (!list) {
+    box.innerHTML = '<p class="empty small">Looking…</p>';
+    return;
+  }
+  if (!list.length) {
+    box.innerHTML = '<p class="empty small">Nothing online yet. Put yours up and the others can join it.</p>';
+    return;
+  }
+  box.innerHTML = list
+    .map((c, i) => {
+      const open = state && state.code === c.code;
+      return `
+        <div class="champ-row ${open ? 'open' : ''}">
+          <button class="champ-open" data-online="${escapeHtml(c.code)}">
+            ${crestSvg(c.name, 40, `on${i}`)}
+            <span class="champ-text">
+              <span class="champ-name">${escapeHtml(c.name)}</span>
+              <span class="champ-meta">${c.players} ${c.players === 1 ? 'player' : 'players'} · ${
+                c.sports
+              } ${c.sports === 1 ? 'sport' : 'sports'} · ${c.played} of ${c.matches} played</span>
+            </span>
+            <span class="champ-state">${open ? 'Open' : escapeHtml(c.code)}</span>
+          </button>
+        </div>`;
+    })
+    .join('');
+  $$('#online-list .champ-open').forEach((btn) => {
+    btn.onclick = () => openOnline(btn.dataset.online);
+  });
+}
+
+async function openOnlineSheet() {
+  $('#online-sheet').hidden = false;
+  $('#online-put').hidden = !state || Boolean(state.code);
+  renderOnlineList();
+  try {
+    const res = await fetch('api/champs', { cache: 'no-store' });
+    const { championships } = await res.json();
+    renderOnlineList(championships || []);
+  } catch {
+    renderOnlineList([]);
+    $('#online-note').textContent =
+      'No signal, so the list could not be fetched. Your own scores are safe on this phone.';
+  }
 }
 
 /* ====================== A CHAMPIONSHIP IN A LINK ======================== */
@@ -1608,7 +1810,9 @@ async function removeFromField(id) {
 
   if (!(await ask(`Take ${name} out?`, { body, yes: 'Take him out', danger: true }))) return;
 
+  rememberRemoved(id, ...matchesWith(state, id).map((m) => m.id));
   removeEntrant(state, id);
+  touchField();
   saveState();
   renderPlayersSheet();
   render();
@@ -1754,6 +1958,8 @@ function render() {
   if (setupMode) {
     // a way back to what is already saved, so setup is never a dead end
     $('#btn-setup-back').hidden = library.championships.length === 0;
+    // and a way to join what the others are already playing
+    $('#btn-setup-online').hidden = !hasServer;
     renderSetup();
     return;
   }
@@ -1785,6 +1991,7 @@ document.addEventListener('change', (event) => {
     const player = state.players.find((p) => p.id === select.dataset.genFor);
     if (player) {
       player.generation = select.value;
+      touchField();
       saveState();
       renderPlayersSheet();
       render();
@@ -1942,6 +2149,7 @@ document.addEventListener('input', (event) => {
     const entrant = state.players.find((p) => p.id === id) || standInsOf(state).find((x) => x.id === id);
     if (entrant) {
       entrant.name = rename.value;
+      touchField();
       saveState();
       renderBrand();
     }
@@ -2078,6 +2286,7 @@ dismissible('#name-sheet', () => { $('#name-sheet').hidden = true; });
 dismissible('#menu', () => { $('#menu').hidden = true; });
 dismissible('#champs-sheet', () => { $('#champs-sheet').hidden = true; });
 dismissible('#share-sheet', () => { $('#share-sheet').hidden = true; });
+dismissible('#online-sheet', () => { $('#online-sheet').hidden = true; });
 dismissible('#players-sheet', () => { $('#players-sheet').hidden = true; render(); });
 dismissible('#confirm-sheet', () => { if (confirmResolve) confirmResolve(false); });
 
@@ -2090,6 +2299,7 @@ $('#menu-players').onclick = () => { $('#menu').hidden = true; openPlayersSheet(
 $('#players-done').onclick = () => { $('#players-sheet').hidden = true; render(); };
 $('#players-add').onclick = () => {
   addPlayer(state, '', 'dad');
+  touchField();
   saveState();
   renderPlayersSheet();
   render();
@@ -2098,6 +2308,7 @@ $('#players-add').onclick = () => {
 };
 $('#standin-add').onclick = () => {
   addStandIn(state, standInsOf(state).length ? '' : DEFAULT_STAND_IN);
+  touchField();
   saveState();
   renderPlayersSheet();
   const rows = $$('#standins-list .roster-name');
@@ -2106,6 +2317,7 @@ $('#standin-add').onclick = () => {
 $('#share-close').onclick = () => { $('#share-sheet').hidden = true; };
 $('#champs-new').onclick = startAnotherChampionship;
 $('#btn-setup-back').onclick = openChampsSheet;
+$('#btn-setup-online').onclick = openOnlineSheet;
 
 $('#match-cancel').onclick = closeMatchSheet;
 $('#match-save').onclick = saveMatchSheet;
@@ -2113,6 +2325,7 @@ $('#match-clear').onclick = () => {
   const match = matchOf(editing.matchId);
   match.sides.forEach((side) => { side.score = null; });
   match.done = false;
+  touchMatch(match);
   saveState();
   closeMatchSheet();
   render();
@@ -2122,6 +2335,7 @@ $('#match-delete').onclick = async () => {
   const matchId = editing.matchId;
   if (!(await ask('Delete this match?', { yes: 'Delete it', danger: true }))) return;
   if (!editing || editing.matchId !== matchId) return;
+  rememberRemoved(matchId);
   state.matches = state.matches.filter((m) => m.id !== matchId);
   saveState();
   closeMatchSheet();
@@ -2141,6 +2355,7 @@ $('#new-sport-save').onclick = addNewSport;
 $('#name-cancel').onclick = () => { $('#name-sheet').hidden = true; };
 $('#name-save').onclick = () => {
   state.name = $('#name-input').value.trim() || DEFAULT_NAME;
+  touchField();
   saveState();
   $('#name-sheet').hidden = true;
   render();
@@ -2170,6 +2385,7 @@ $('#menu-reset').onclick = async () => {
   state.matches.forEach((m) => {
     m.sides.forEach((side) => { side.score = null; });
     m.done = false;
+    touchMatch(m);
   });
   saveState();
   $('#menu').hidden = true;
@@ -2186,7 +2402,9 @@ $('#menu-rebuild').onclick = async () => {
     danger: true,
   });
   if (!go) return;
+  rememberRemoved(...state.matches.map((m) => m.id));
   buildAllProgrammes(state);
+  state.matches.forEach(touchMatch);
   saveState();
   view = 'sports';
   openSportId = null;
@@ -2211,6 +2429,10 @@ $('#menu-champs').onclick = () => {
   openChampsSheet();
 };
 
+$('#menu-online').onclick = () => { $('#menu').hidden = true; openOnlineSheet(); };
+$('#online-close').onclick = () => { $('#online-sheet').hidden = true; };
+$('#online-refresh').onclick = () => openOnlineSheet();
+$('#online-put').onclick = putOnline;
 $('#menu-share-champ').onclick = () => { $('#menu').hidden = true; shareChampionship(); };
 $('#menu-export').onclick = () => { $('#menu').hidden = true; exportChampionship(); };
 $('#menu-import').onclick = () => { $('#menu').hidden = true; $('#import-file').click(); };
@@ -2244,6 +2466,16 @@ window.addEventListener('scroll', syncTopbar, { passive: true });
 syncTopbar();
 
 render();
+
+// a shared championship keeps itself in step with everybody else's phone
+serverIsThere().then((there) => {
+  hasServer = there;
+  $('#menu-online').hidden = !there;
+  $('#btn-setup-online').hidden = !there || Boolean(state);
+  if (there) keepInStep();
+});
+window.addEventListener('online', () => pushAndPull());
+document.addEventListener('visibilitychange', () => { if (!document.hidden) pushAndPull(); });
 
 // a link with a championship in it opens straight into that championship —
 // on the first load, and again if a link is tapped while the app is open

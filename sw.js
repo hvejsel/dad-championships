@@ -1,11 +1,12 @@
 // Cache the whole app so a championship keeps running with no signal at the pitch.
-const CACHE = 'dad-champs-v12';
+const CACHE = 'dad-champs-v13';
 const ASSETS = [
   './',
   'index.html',
   'styles.css',
   'app.js',
   'tournament.js',
+  'sync.mjs',
   'manifest.webmanifest',
   'icon.svg',
   'icon-180.png',
@@ -31,6 +32,8 @@ self.addEventListener('activate', (event) => {
 // Network first so a deployed update lands straight away, cache as the fallback.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  // shared championships are live data, never something to serve from a cache
+  if (new URL(event.request.url).pathname.includes('/api/')) return;
   event.respondWith(
     fetch(event.request)
       .then((response) => {

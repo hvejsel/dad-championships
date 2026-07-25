@@ -38,6 +38,9 @@
     <!-- ============================ SETUP ============================ -->
     <section id="view-setup" class="view">
 
+      <!-- a brand new phone has to be able to join what the others are playing,
+           before it has a championship of its own -->
+      <button class="primary wide back-to-saved" id="btn-setup-online" hidden>Join a championship online</button>
       <!-- shown only when there is already a championship to go back to -->
       <button class="ghost wide back-to-saved" id="btn-setup-back" hidden>Back to the championships you have saved</button>
 
@@ -237,7 +240,8 @@
   <div class="sheet-card">
     <div class="grabber"></div>
     <h2>Championship</h2>
-    <button class="primary wide" id="menu-share-champ">Send the championship</button>
+    <button class="primary wide" id="menu-online" hidden>Championships online</button>
+    <button class="ghost wide" id="menu-share-champ">Send the championship</button>
     <button class="ghost wide" id="menu-champs">Your championships</button>
     <button class="ghost wide" id="menu-export">Save to a file</button>
     <button class="ghost wide" id="menu-import">Open from a file</button>
@@ -252,6 +256,20 @@
     <button class="ghost wide" id="menu-close">Close</button>
     <button class="link-btn wide-link" id="menu-update">Update the app</button>
     <p class="version" id="app-version"></p>
+  </div>
+</div>
+
+<!-- the championships everybody shares, and the way onto the list -->
+<div id="online-sheet" class="sheet" hidden>
+  <div class="sheet-card">
+    <div class="grabber"></div>
+    <h2>Championships online</h2>
+    <p class="hint" id="online-note">Everyone on this address sees the same list. Tap one to open it and
+      enter scores — everybody's scores land in the same championship.</p>
+    <div id="online-list" class="champs-list"></div>
+    <button class="primary wide" id="online-put">Put this one online</button>
+    <button class="ghost wide" id="online-refresh">Refresh the list</button>
+    <button class="ghost wide" id="online-close">Close</button>
   </div>
 </div>
 

@@ -728,6 +728,7 @@ export function migrateState(saved) {
       sides,
       done: Boolean(match.done),
       pedro: Boolean(match.pedro),
+      updatedAt: match.updatedAt || null,
     };
   });
 
@@ -742,9 +743,14 @@ export function migrateState(saved) {
     // a link, or the phone at the other end cannot tell a copy of one it
     // already has from a brand new championship
     id: saved.id || null,
+    // the code a shared championship is reached by, and the stamps the merge
+    // needs to tell two copies apart
+    code: saved.code || null,
     name: saved.name || DEFAULT_NAME,
     createdAt: saved.createdAt || null,
     updatedAt: saved.updatedAt || null,
+    metaAt: saved.metaAt || saved.updatedAt || null,
+    removed: saved.removed && typeof saved.removed === 'object' ? { ...saved.removed } : {},
     players: saved.players.map((p, i) => ({
       id: p.id || `p${i + 1}`,
       name: p.name || `Player ${i + 1}`,
