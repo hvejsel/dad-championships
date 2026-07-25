@@ -105,6 +105,43 @@ its matches.
 Picking a player who is already in the match swaps the two around, which is how
 you rearrange opponents without emptying the match first.
 
+## Everybody on one championship
+
+Served from its own address, the app also keeps the championships everybody
+shares. **Championships online** in the menu lists them; tap one and you are in
+it, entering scores from your own phone alongside everyone else. A phone with
+nothing on it gets the same offer on the very first screen, because that is
+exactly the phone that needs to join.
+
+Live: <https://dad-championships.sliplane.app>
+
+There is **no login**. Anyone who has the address sees the list and can enter
+scores. That is the right trade for a family championship and the wrong one for
+anything else — do not put anything on it you would not read out on a court.
+
+`server.mjs` serves the app and holds the championships, one file per
+championship on a mounted disk. No framework and no dependencies.
+
+### What happens when two phones disagree
+
+Both phones hold the whole championship and both keep going, sometimes with no
+signal, so neither copy is "right" when they meet again. `sync.mjs` merges them
+instead of letting one overwrite the other:
+
+- **a match** — the copy touched last wins, match by match, so two people
+  entering two different results both keep theirs
+- **the field** — name, players, sports and stand-ins move together and the
+  copy edited last wins the lot; editing the roster in two places at once is
+  rare, entering scores at the same time is not
+- **a deletion** — remembered as a date, so a match deleted on one phone does
+  not come back from the other
+
+Merging a copy into itself changes nothing, and the answer does not depend on
+which way round the two copies meet. A phone pushes on every change and pulls
+every few seconds, so a score entered on a court with no signal is not lost —
+it arrives late. `test-sync.mjs` covers the merge alone; `test-online.mjs`
+drives two real phones through one championship.
+
 ## A championship in a link
 
 **Send the championship** puts the whole thing — field, programme, every result
@@ -217,6 +254,8 @@ node test.mjs                 # engine tests
 node test-mobile.mjs          # mobile tests (needs playwright + webkit)
 node test-update.mjs          # the self-update path
 node test-keyboard.mjs        # nothing hides behind the on-screen keyboard
+node test-sync.mjs            # the merge
+DATA_DIR=/tmp/d PORT=8788 node server.mjs   # the server; then: node test-online.mjs
 node tools/gen-icons.mjs      # regenerate the app icons
 ```
 
@@ -231,5 +270,9 @@ Add it to your home screen and it opens full screen like a normal app.
 | `test.mjs` | Engine tests |
 | `test-mobile.mjs` | Mobile tests — taps, sheets, the library, sharing |
 | `test-update.mjs` | The self-update path |
+| `sync.mjs` | Putting two copies of a championship back together |
+| `server.mjs` | Serves the app and holds the shared championships |
+| `test-sync.mjs` | The merge, on its own |
+| `test-online.mjs` | Two phones, one championship |
 | `test-keyboard.mjs` | Nothing hides behind the on-screen keyboard |
 | `sw.js` | Offline cache |
