@@ -5,9 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <title>Dad Championships</title>
 <meta name="description" content="Run a multi-sport championship between dads. One pitch, one sport at a time, one table to rule them all.">
-<meta name="theme-color" content="#0f1115">
+<meta name="theme-color" content="#f3f1ec">
+<meta name="color-scheme" content="light">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Dad Champs">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -18,15 +19,16 @@
 
 <div id="app">
 
-  <header class="topbar">
+  <header class="topbar" id="topbar">
     <div class="topbar-title">
-      <span class="crest">🏆</span>
-      <div>
-        <h1 id="champ-name">Dad Championships</h1>
-        <p id="champ-sub" class="sub">Set up a new championship</p>
-      </div>
+      <h1 id="champ-name">Dad Championships</h1>
+      <p id="champ-sub" class="sub">Set up a new championship</p>
     </div>
-    <button id="btn-menu" class="icon-btn" aria-label="Menu" hidden>⋯</button>
+    <button id="btn-menu" class="icon-btn" aria-label="Menu" hidden>
+      <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+        <circle cx="4" cy="10" r="1.7"/><circle cx="10" cy="10" r="1.7"/><circle cx="16" cy="10" r="1.7"/>
+      </svg>
+    </button>
   </header>
 
   <main id="main">
@@ -49,6 +51,7 @@
           <output id="sports-count">3</output>
           <button class="round-btn" data-count="sports" data-delta="1" aria-label="More sports">+</button>
         </div>
+        <p class="eyebrow">The line-up</p>
         <div id="sport-names" class="name-list"></div>
         <button class="primary" data-goto="2">Next: add the dads</button>
       </div>
@@ -62,6 +65,7 @@
           <output id="players-count">4</output>
           <button class="round-btn" data-count="players" data-delta="1" aria-label="More dads">+</button>
         </div>
+        <p class="eyebrow">The field</p>
         <div id="player-names" class="name-list"></div>
         <div class="row-btns">
           <button class="ghost" data-goto="1">Back</button>
@@ -128,9 +132,26 @@
   </main>
 
   <nav id="tabs" class="tabs" hidden>
-    <button data-view="play" class="on"><span>🎯</span>Play</button>
-    <button data-view="table"><span>📊</span>Table</button>
-    <button data-view="schedule"><span>📋</span>Schedule</button>
+    <button data-view="play" class="on">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <rect x="3" y="5.5" width="18" height="13" rx="2.5"/><path d="M12 5.5v13"/>
+      </svg>
+      Play
+    </button>
+    <button data-view="table">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <path d="M9 20V9h6v11" stroke-linejoin="round"/><path d="M3 20v-6h6" stroke-linejoin="round"/>
+        <path d="M15 20v-8h6v8" stroke-linejoin="round"/><path d="M2 20h20" stroke-linecap="round"/>
+      </svg>
+      Table
+    </button>
+    <button data-view="schedule">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <rect x="4" y="4" width="16" height="17" rx="2.5"/><path d="M8 3v3M16 3v3" stroke-linecap="round"/>
+        <path d="M8 11h8M8 15.5h5" stroke-linecap="round"/>
+      </svg>
+      Schedule
+    </button>
   </nav>
 
 </div>
@@ -138,9 +159,10 @@
 <!-- score editor -->
 <div id="sheet" class="sheet" hidden>
   <div class="sheet-card">
+    <div class="grabber"></div>
     <p class="sheet-sport" id="sheet-sport"></p>
     <div class="score-row">
-      <div class="score-team">
+      <div class="court-side">
         <p class="team-names" id="sheet-team-a"></p>
         <div class="score-control">
           <button class="round-btn" data-score="a" data-delta="-1" aria-label="Lower">−</button>
@@ -148,8 +170,8 @@
           <button class="round-btn" data-score="a" data-delta="1" aria-label="Raise">+</button>
         </div>
       </div>
-      <p class="vs">vs</p>
-      <div class="score-team">
+      <div class="net"><span>VS</span></div>
+      <div class="court-side">
         <p class="team-names" id="sheet-team-b"></p>
         <div class="score-control">
           <button class="round-btn" data-score="b" data-delta="-1" aria-label="Lower">−</button>
@@ -168,6 +190,7 @@
 <!-- menu -->
 <div id="menu" class="sheet" hidden>
   <div class="sheet-card">
+    <div class="grabber"></div>
     <h2>Championship</h2>
     <button class="ghost wide" id="menu-share">Share the table</button>
     <button class="ghost wide" id="menu-reset">Clear all results</button>

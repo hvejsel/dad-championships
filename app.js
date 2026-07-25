@@ -90,6 +90,25 @@ function escapeHtml(value) {
   );
 }
 
+/** Brass, silver and bronze discs for the podium; a plain numeral below it. */
+function medal(rank) {
+  const cls = rank <= 3 ? `medal medal-${rank}` : 'medal medal-plain';
+  return `<span class="${cls}">${rank}</span>`;
+}
+
+const TROPHY_SVG = `
+  <svg class="cup" width="98" height="98" viewBox="0 0 512 512" aria-hidden="true">
+    <defs><linearGradient id="brass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d8ab4a"/><stop offset="1" stop-color="#8a6318"/>
+    </linearGradient></defs>
+    <g fill="none" stroke="url(#brass)" stroke-width="20">
+      <path d="M148 132 a52 52 0 1 0 14 88"/>
+      <path d="M364 132 a52 52 0 1 1 -14 88"/>
+    </g>
+    <path fill="url(#brass)"
+          d="M158 122 h196 v54 c0 64-32 118-78 130 v46 h24 v18 h30 v30 h-148 v-30 h30 v-18 h24 v-46 c-46-12-78-66-78-130z"/>
+  </svg>`;
+
 let toastTimer = null;
 function toast(message) {
   const el = $('#toast');
@@ -226,21 +245,24 @@ function renderPlay() {
   if (index === null) {
     const table = standings(state);
     const podium = table.slice(0, 3);
-    const medals = ['🥇', '🥈', '🥉'];
     body.innerHTML = `
       <div class="champion">
-        <div class="cup">🏆</div>
-        <h2>Champion</h2>
+        ${TROPHY_SVG}
+        <p class="eyebrow-c">Champion</p>
         <p class="who">${escapeHtml(table[0].name)}</p>
-        <p class="note">${table[0].points} points from ${total} matches</p>
-        ${podium
-          .map(
-            (row, i) =>
-              `<div class="up-next"><span class="label">${medals[i]} ${
-                i === 0 ? 'Winner' : `Number ${i + 1}`
-              }</span><strong>${escapeHtml(row.name)} — ${row.points} points</strong></div>`
-          )
-          .join('')}
+        <p class="note">${table[0].points} points from ${table[0].played} matches</p>
+        <div class="podium">
+          ${podium
+            .map(
+              (row, i) => `
+            <div class="podium-row">
+              ${medal(i + 1)}
+              <span class="who-name">${escapeHtml(row.name)}</span>
+              <span class="pts">${row.points}</span>
+            </div>`
+            )
+            .join('')}
+        </div>
         <button class="primary wide" id="btn-see-table">See the full table</button>
       </div>`;
     $('#btn-see-table').onclick = () => { view = 'table'; render(); };
@@ -259,19 +281,23 @@ function renderPlay() {
     </div>
     <div class="bar"><i style="width:${total ? (done / total) * 100 : 0}%"></i></div>
 
-    <div class="match-card">
-      <p class="team-names">${teamHtml(match.teamA)}</p>
-      <div class="score-control">
-        <button class="round-btn" data-live="a" data-delta="-1" aria-label="Lower">−</button>
-        <input id="live-a" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="0">
-        <button class="round-btn" data-live="a" data-delta="1" aria-label="Raise">+</button>
+    <div class="court-card">
+      <div class="court-side">
+        <p class="team-names">${teamHtml(match.teamA)}</p>
+        <div class="score-control">
+          <button class="round-btn" data-live="a" data-delta="-1" aria-label="Lower">−</button>
+          <input id="live-a" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="0">
+          <button class="round-btn" data-live="a" data-delta="1" aria-label="Raise">+</button>
+        </div>
       </div>
-      <p class="vs">versus</p>
-      <p class="team-names">${teamHtml(match.teamB)}</p>
-      <div class="score-control">
-        <button class="round-btn" data-live="b" data-delta="-1" aria-label="Lower">−</button>
-        <input id="live-b" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="0">
-        <button class="round-btn" data-live="b" data-delta="1" aria-label="Raise">+</button>
+      <div class="net"><span>VS</span></div>
+      <div class="court-side">
+        <p class="team-names">${teamHtml(match.teamB)}</p>
+        <div class="score-control">
+          <button class="round-btn" data-live="b" data-delta="-1" aria-label="Lower">−</button>
+          <input id="live-b" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="0">
+          <button class="round-btn" data-live="b" data-delta="1" aria-label="Raise">+</button>
+        </div>
       </div>
     </div>
 
@@ -331,38 +357,63 @@ function renderTable() {
 
   if (!anyPlayed) {
     $('#table-body').innerHTML =
-      '<p class="empty">No results yet.<br>Play the first match and the table fills itself in.</p>';
+      '<p class="empty">Nothing on the board yet.<br>Play the first match and the standings fill themselves in.</p>';
     return;
   }
 
-  const medals = ['🥇', '🥈', '🥉'];
+  const scope = state.matches.filter(
+    (m) => tableFilter === 'all' || m.sportId === tableFilter
+  );
+  const playedHere = scope.filter((m) => m.done).length;
   const pointsHeader = state.scoring === 'score' ? 'Score' : 'Pts';
 
+  // The one question this screen exists to answer, answered before the detail.
+  const leaderRow = rows[0];
+  const runnerUp = rows[1];
+  const gap = runnerUp ? leaderRow.points - runnerUp.points : 0;
+  const margin = !runnerUp
+    ? 'The only dad on the board'
+    : gap === 0
+      ? `Level with ${escapeHtml(runnerUp.name)} on points`
+      : `${gap} ${gap === 1 ? 'point' : 'points'} clear of ${escapeHtml(runnerUp.name)}`;
+
+  const done = playedHere === scope.length;
+
   $('#table-body').innerHTML = `
-    <table>
-      <thead>
-        <tr>
-          <th>#</th><th>Dad</th><th>P</th><th>W</th><th>D</th><th>L</th><th>+/−</th><th>${pointsHeader}</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows
-          .map(
-            (row, i) => `
-          <tr class="rank-${i + 1}">
-            <td class="rank">${i < 3 ? `<span class="rank-medal">${medals[i]}</span>` : i + 1}</td>
-            <td class="name">${escapeHtml(row.name)}</td>
-            <td>${row.played}</td>
-            <td>${row.won}</td>
-            <td>${row.drawn}</td>
-            <td>${row.lost}</td>
-            <td>${row.diff > 0 ? '+' : ''}${row.diff}</td>
-            <td class="pts">${row.points}</td>
-          </tr>`
-          )
-          .join('')}
-      </tbody>
-    </table>`;
+    <div class="leader">
+      ${medal(1)}
+      <div class="leader-text">
+        <span class="label">${done ? 'Winner' : 'Leading'}</span>
+        <span class="name">${escapeHtml(leaderRow.name)}</span>
+        <span class="margin">${margin}</span>
+      </div>
+      <div class="total"><b>${leaderRow.points}</b><span>${pointsHeader}</span></div>
+    </div>
+
+    <p class="eyebrow">After ${playedHere} of ${scope.length} ${scope.length === 1 ? 'match' : 'matches'}</p>
+    <div class="standings">
+      <div class="standings-head">
+        <span class="spacer"></span>
+        <span class="who-name">Dad</span>
+        <span class="record">W · D · L</span>
+        <span class="diff">+/−</span>
+        <span class="pts">${pointsHeader}</span>
+      </div>
+      ${rows
+        .map(
+          (row, i) => `
+        <div class="standings-row${i === 0 ? ' top' : ''}">
+          ${medal(i + 1)}
+          <span class="who-name">${escapeHtml(row.name)}</span>
+          <span class="record">${row.won} · ${row.drawn} · ${row.lost}</span>
+          <span class="diff ${row.diff > 0 ? 'up' : row.diff < 0 ? 'down' : ''}">${
+            row.diff > 0 ? '+' : ''
+          }${row.diff}</span>
+          <span class="pts">${row.points}</span>
+        </div>`
+        )
+        .join('')}
+    </div>`;
 }
 
 /* =============================== SCHEDULE =============================== */
@@ -381,17 +432,25 @@ function renderSchedule() {
             <h3>${escapeHtml(sport.name)}</h3>
             <span>${played} of ${matches.length} played</span>
           </div>
-          ${matches
-            .map(
-              (m) => `
-            <button class="fixture ${m.done ? 'played' : ''} ${m.id === currentId ? 'now' : ''}"
-                    data-match="${m.id}">
-              <span class="no">${m.roundInSport}</span>
-              <span class="who">${teamHtml(m.teamA)}<br>${teamHtml(m.teamB)}</span>
-              <span class="res">${m.done ? `${m.scoreA} – ${m.scoreB}` : '– – –'}</span>
-            </button>`
-            )
-            .join('')}
+          <div class="fixtures">
+            ${matches
+              .map(
+                (m) => `
+              <button class="fixture ${m.done ? 'played' : ''} ${m.id === currentId ? 'now' : ''}"
+                      data-match="${m.id}">
+                <span class="no">${m.roundInSport}</span>
+                <span class="who">${teamHtml(m.teamA)}<br>${teamHtml(m.teamB)}</span>
+                <span class="res">${
+                  m.done
+                    ? `${m.scoreA} – ${m.scoreB}`
+                    : m.id === currentId
+                      ? '<em>On now</em>'
+                      : '—'
+                }</span>
+              </button>`
+              )
+              .join('')}
+          </div>
         </div>`;
     })
     .join('');
@@ -470,10 +529,11 @@ function render() {
     return;
   }
 
-  const { done, total } = progress(state.matches);
+  // Identity only — progress is told once, by the screen that needs it.
   $('#champ-name').textContent = 'Dad Championships';
   $('#champ-sub').textContent =
-    `${state.format} · ${state.sports.length} ${state.sports.length === 1 ? 'sport' : 'sports'} · ${done}/${total} played`;
+    `${state.format} · ${state.players.length} dads · ` +
+    `${state.sports.length} ${state.sports.length === 1 ? 'sport' : 'sports'}`;
 
   $$('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
 
@@ -589,6 +649,12 @@ $('#menu-new').onclick = () => {
   $('#menu').hidden = true;
   render();
 };
+
+// The nav bar keeps its hairline hidden until the content slides under it.
+const topbar = $('#topbar');
+const syncTopbar = () => topbar.classList.toggle('scrolled', window.scrollY > 4);
+window.addEventListener('scroll', syncTopbar, { passive: true });
+syncTopbar();
 
 render();
 

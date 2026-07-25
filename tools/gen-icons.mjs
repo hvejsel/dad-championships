@@ -49,10 +49,11 @@ function encodePng(width, height, rgba) {
   ]);
 }
 
-const BG_TOP = [30, 35, 47];
-const BG_BOTTOM = [15, 17, 21];
-const GOLD = [245, 196, 81];
-const GOLD_DARK = [183, 143, 44];
+// Court blue behind brass, the same two colours the interface is built from.
+const BG_TOP = [39, 124, 226];
+const BG_BOTTOM = [16, 74, 166];
+const GOLD = [240, 205, 130];
+const GOLD_DARK = [186, 143, 56];
 
 function roundedSquare(x, y, size) {
   const r = size * 0.225;
