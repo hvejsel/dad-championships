@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Dad Championships</title>
+<meta name="description" content="Run a multi-sport championship between dads. One pitch, one sport at a time, one table to rule them all.">
+<meta name="theme-color" content="#0f1115">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Dad Champs">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div id="app">
+
+  <header class="topbar">
+    <div class="topbar-title">
+      <span class="crest">🏆</span>
+      <div>
+        <h1 id="champ-name">Dad Championships</h1>
+        <p id="champ-sub" class="sub">Set up a new championship</p>
+      </div>
+    </div>
+    <button id="btn-menu" class="icon-btn" aria-label="Menu" hidden>⋯</button>
+  </header>
+
+  <main id="main">
+
+    <!-- ============================ SETUP ============================ -->
+    <section id="view-setup" class="view">
+
+      <ol class="stepper" id="stepper">
+        <li data-step="1" class="active"><span>1</span>Sports</li>
+        <li data-step="2"><span>2</span>Dads</li>
+        <li data-step="3"><span>3</span>Rules</li>
+      </ol>
+
+      <!-- Step 1: sports -->
+      <div class="step" data-step="1">
+        <h2>How many sports?</h2>
+        <p class="hint">You play one sport at a time, start to finish, before moving on to the next.</p>
+        <div class="counter">
+          <button class="round-btn" data-count="sports" data-delta="-1" aria-label="Fewer sports">−</button>
+          <output id="sports-count">3</output>
+          <button class="round-btn" data-count="sports" data-delta="1" aria-label="More sports">+</button>
+        </div>
+        <div id="sport-names" class="name-list"></div>
+        <button class="primary" data-goto="2">Next: add the dads</button>
+      </div>
+
+      <!-- Step 2: players -->
+      <div class="step" data-step="2" hidden>
+        <h2>Who is playing?</h2>
+        <p class="hint">Everyone scores individually, even in doubles.</p>
+        <div class="counter">
+          <button class="round-btn" data-count="players" data-delta="-1" aria-label="Fewer dads">−</button>
+          <output id="players-count">4</output>
+          <button class="round-btn" data-count="players" data-delta="1" aria-label="More dads">+</button>
+        </div>
+        <div id="player-names" class="name-list"></div>
+        <div class="row-btns">
+          <button class="ghost" data-goto="1">Back</button>
+          <button class="primary" data-goto="3">Next: the rules</button>
+        </div>
+      </div>
+
+      <!-- Step 3: rules -->
+      <div class="step" data-step="3" hidden>
+        <h2>How do you play?</h2>
+
+        <div class="field">
+          <label>Teams</label>
+          <div class="segmented" id="seg-format">
+            <button data-value="1v1" class="on">1 v 1<small>Everyone meets everyone</small></button>
+            <button data-value="2v2">2 v 2<small>Partners rotate every match</small></button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Points</label>
+          <div class="segmented" id="seg-scoring">
+            <button data-value="match" class="on">Win = 3<small>Draw 1, loss 0</small></button>
+            <button data-value="score">Score counts<small>Every point you score</small></button>
+          </div>
+        </div>
+
+        <div class="field" id="field-matchcount" hidden>
+          <label>Matches per sport</label>
+          <div class="counter small">
+            <button class="round-btn" data-count="matches" data-delta="-1" aria-label="Fewer matches">−</button>
+            <output id="matches-count">3</output>
+            <button class="round-btn" data-count="matches" data-delta="1" aria-label="More matches">+</button>
+          </div>
+        </div>
+
+        <div class="preview" id="setup-preview"></div>
+        <p class="error" id="setup-error" hidden></p>
+
+        <div class="row-btns">
+          <button class="ghost" data-goto="2">Back</button>
+          <button class="primary" id="btn-create">Create championship</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ PLAY ============================ -->
+    <section id="view-play" class="view" hidden>
+      <div id="play-body"></div>
+    </section>
+
+    <!-- ============================ TABLE ============================ -->
+    <section id="view-table" class="view" hidden>
+      <div class="chips" id="table-chips"></div>
+      <div id="table-body"></div>
+      <button class="ghost wide" id="btn-share">Share the table</button>
+    </section>
+
+    <!-- ========================== SCHEDULE ========================== -->
+    <section id="view-schedule" class="view" hidden>
+      <div id="schedule-body"></div>
+    </section>
+
+  </main>
+
+  <nav id="tabs" class="tabs" hidden>
+    <button data-view="play" class="on"><span>🎯</span>Play</button>
+    <button data-view="table"><span>📊</span>Table</button>
+    <button data-view="schedule"><span>📋</span>Schedule</button>
+  </nav>
+
+</div>
+
+<!-- score editor -->
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-card">
+    <p class="sheet-sport" id="sheet-sport"></p>
+    <div class="score-row">
+      <div class="score-team">
+        <p class="team-names" id="sheet-team-a"></p>
+        <div class="score-control">
+          <button class="round-btn" data-score="a" data-delta="-1" aria-label="Lower">−</button>
+          <input id="sheet-score-a" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="0">
+          <button class="round-btn" data-score="a" data-delta="1" aria-label="Raise">+</button>
+        </div>
+      </div>
+      <p class="vs">vs</p>
+      <div class="score-team">
+        <p class="team-names" id="sheet-team-b"></p>
+        <div class="score-control">
+          <button class="round-btn" data-score="b" data-delta="-1" aria-label="Lower">−</button>
+          <input id="sheet-score-b" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="0">
+          <button class="round-btn" data-score="b" data-delta="1" aria-label="Raise">+</button>
+        </div>
+      </div>
+    </div>
+    <div class="row-btns">
+      <button class="ghost" id="sheet-cancel">Cancel</button>
+      <button class="primary" id="sheet-save">Save result</button>
+    </div>
+  </div>
+</div>
+
+<!-- menu -->
+<div id="menu" class="sheet" hidden>
+  <div class="sheet-card">
+    <h2>Championship</h2>
+    <button class="ghost wide" id="menu-share">Share the table</button>
+    <button class="ghost wide" id="menu-reset">Clear all results</button>
+    <button class="danger wide" id="menu-new">Start a new championship</button>
+    <button class="ghost wide" id="menu-close">Close</button>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
