@@ -31,6 +31,8 @@ import {
   validateSides,
   pedroMatches,
   pedroStatus,
+  sportProgress,
+  upgradeTime,
   standInsOf,
   isStandIn,
   entrantsOf,
@@ -554,6 +556,48 @@ group('ties', () => {
   check('the narrower win ranks second', table[1].playerId === 'p3', table[1].playerId);
 });
 
+group('a booked time is a day and a time', () => {
+  check('a clock time gains the day it was set up',
+    upgradeTime('10:30', '2026-04-05T09:00:00.000Z') === '2026-04-05T10:30',
+    upgradeTime('10:30', '2026-04-05T09:00:00.000Z'));
+  check('a day and time is left alone', upgradeTime('2026-08-01T09:00', null) === '2026-08-01T09:00');
+  check('seconds are trimmed off', upgradeTime('2026-08-01T09:00:00', null) === '2026-08-01T09:00');
+  check('no time stays no time', upgradeTime(null, null) === null);
+  check('nonsense is refused', upgradeTime('half past ten', null) === null);
+
+  const list = [
+    sport({ id: 's1', name: 'Sunday padel', order: 0, time: '2026-08-02T09:00' }),
+    sport({ id: 's2', name: 'Saturday darts', order: 1, time: '2026-08-01T20:00' }),
+    sport({ id: 's3', name: 'Saturday bowling', order: 2, time: '2026-08-01T10:00' }),
+    sport({ id: 's4', name: 'Whenever', order: 3, time: null }),
+  ];
+  check('sports run in the order they happen, across days',
+    orderedSports(list).map((x) => x.id).join(',') === 's3,s2,s1,s4',
+    orderedSports(list).map((x) => x.id).join(','));
+});
+
+group('a sport says when it is done', () => {
+  const s = baseState({
+    matches: [
+      { id: 'm1', sportId: 's1', sides: played([['p1'], 11], [['p2'], 6]), done: true },
+      { id: 'm2', sportId: 's1', sides: played([['p3'], 9], [['p4'], 11]), done: true },
+      { id: 'm3', sportId: 's2', sides: played([['p1'], 5], [['p2'], 3]), done: true },
+      { id: 'm4', sportId: 's2', sides: sides(['p3'], ['p4']), done: false },
+    ],
+  });
+
+  const one = sportProgress(s, 's1');
+  check('a sport with every match played is done', one.complete === true);
+  check('and it counts them', one.done === 2 && one.total === 2);
+
+  const two = sportProgress(s, 's2');
+  check('a sport with a match left is not done', two.complete === false);
+  check('and it says how far it got', two.done === 1 && two.total === 2);
+
+  const none = sportProgress(s, 's3');
+  check('a sport with no matches at all is not done', none.complete === false, JSON.stringify(none));
+});
+
 group('a saved championship survives an update', () => {
   // what an older version of the app wrote: two teams, two scores, one point
   // type for the whole championship
@@ -573,7 +617,8 @@ group('a saved championship survives an update', () => {
 
   check('it is brought up to the current version', migrated.version === STATE_VERSION);
   check('the players are kept', migrated.players.map((p) => p.name).join(',') === 'Jesper,Bent');
-  check('the booked time is kept', migrated.sports[0].time === '10:30');
+  check('a clock-only booked time gains the day the championship started',
+    migrated.sports[0].time === '2026-07-25T10:30', migrated.sports[0].time);
   check('the old point type moves onto the sport', migrated.sports[0].scoring === 'score');
   check('a win gets a value it did not have before', migrated.sports[0].winPoints === 3);
   check('the championship gets a name for its crest', migrated.name === 'Dad Championships');

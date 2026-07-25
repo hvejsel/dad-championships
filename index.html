@@ -148,9 +148,9 @@
     <p class="eyebrow">Name</p>
     <input type="text" id="sport-name" class="sheet-input" autocapitalize="words" autocomplete="off" spellcheck="false">
 
-    <p class="eyebrow">Booked time</p>
+    <p class="eyebrow">Booked day and time</p>
     <div class="time-row">
-      <input id="sport-time" type="time">
+      <input id="sport-time" type="datetime-local">
       <button class="link-btn" id="sport-time-clear">Clear</button>
     </div>
 
@@ -238,6 +238,9 @@
     <div class="grabber"></div>
     <h2>Championship</h2>
     <button class="ghost wide" id="menu-champs">Your championships</button>
+    <button class="ghost wide" id="menu-export">Save to a file</button>
+    <button class="ghost wide" id="menu-import">Open from a file</button>
+    <input type="file" id="import-file" accept=".json,application/json" hidden>
     <button class="ghost wide" id="menu-players">Who is playing</button>
     <button class="ghost wide" id="menu-rename">Name and crest</button>
     <button class="ghost wide" id="menu-share">Share the table</button>

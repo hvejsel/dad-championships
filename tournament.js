@@ -654,6 +654,13 @@ export function removeEntrant(state, id) {
   return removed;
 }
 
+/** Where one sport has got to: played, total, and whether it is finished. */
+export function sportProgress(state, sportId) {
+  const list = matchesForSport(state.matches, sportId);
+  const done = list.filter((m) => m.done).length;
+  return { done, total: list.length, complete: list.length > 0 && done === list.length };
+}
+
 /** The next match still to be played, following the running order. */
 export function nextUnplayed(state) {
   return orderedMatches(state).find((m) => !m.done) || null;
@@ -666,7 +673,25 @@ export function progress(matches) {
 
 /* ------------------------------- storage -------------------------------- */
 
-export const STATE_VERSION = 6;
+/**
+ * A booked time is "YYYY-MM-DDTHH:MM" — the shape a phone's own date-and-time
+ * picker speaks, and a shape that sorts chronologically as plain text.
+ * A bare "HH:MM" from an older save is given the day the championship started.
+ */
+export function upgradeTime(value, createdAt) {
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) return value.slice(0, 16);
+  const clock = /^(\d{2}):(\d{2})$/.exec(value);
+  if (!clock) return null;
+  const day = createdAt ? new Date(createdAt) : new Date();
+  const date = Number.isNaN(day.getTime()) ? new Date() : day;
+  const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate()
+  ).padStart(2, '0')}`;
+  return `${iso}T${clock[1]}:${clock[2]}`;
+}
+
+export const STATE_VERSION = 7;
 
 /**
  * Bring a championship saved by an older version of the app up to date, in
@@ -684,7 +709,9 @@ export function migrateState(saved) {
     // point type used to live on the championship; keep what was chosen there
     scoring: sport.scoring || saved.scoring || 'match',
     winPoints: sport.winPoints || DEFAULT_WIN_POINTS,
-    time: sport.time || null,
+    // a time used to be a clock time alone; a championship can run over more
+    // than one day, so it is now a date and a time — the day it was set up
+    time: upgradeTime(sport.time, saved.createdAt),
   }));
 
   const matches = (saved.matches || []).map((match, i) => {

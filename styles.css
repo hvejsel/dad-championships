@@ -915,7 +915,8 @@ button { font-family: inherit; }
   padding: 6px 16px;
   margin-bottom: 22px;
 }
-.time-row input[type="time"] {
+.time-row input[type="time"],
+.time-row input[type="datetime-local"] {
   flex: 1;
   border: 0;
   background: none;
@@ -925,7 +926,10 @@ button { font-family: inherit; }
   min-height: 46px;
   font-variant-numeric: tabular-nums;
 }
-.time-row input[type="time"]:focus { outline: none; }
+.time-row input[type="time"]:focus,
+.time-row input[type="datetime-local"]:focus { outline: none; }
+/* a date-and-time control is wider and, left alone, shorter than a thumb */
+.time-row input[type="datetime-local"] { font-size: 17px; min-width: 0; }
 .link-btn {
   border: 0;
   background: none;
@@ -1546,3 +1550,33 @@ button { font-family: inherit; }
 }
 .step-actions .primary,
 .step-actions .ghost { margin-top: 0; }
+
+/* ---------------------- a sport that has been played --------------------- */
+/* The overview answers "what is left" before anything else, so a finished
+   sport has to read as finished at a glance, not as a fraction to work out. */
+
+.sport-link.done { background: rgba(46, 125, 79, 0.05); }
+.sport-link.done .sl-name { color: var(--ink-soft); }
+.done-tick {
+  display: inline-block;
+  vertical-align: middle;
+  width: 17px; height: 17px;
+  margin-left: 7px;
+  border-radius: 50%;
+  background: var(--grass);
+  position: relative;
+}
+.done-tick::after {
+  content: "";
+  position: absolute;
+  left: 5px; top: 4px;
+  width: 4px; height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(43deg);
+}
+.sl-count.all-in {
+  color: var(--grass);
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}

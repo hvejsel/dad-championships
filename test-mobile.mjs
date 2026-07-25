@@ -285,6 +285,90 @@ const run = async () => {
   check('the stand-in never enters the table', !tableText.includes('Anders'), tableText.slice(0, 120));
   check('but the match counted for the player', /point|Pts/i.test(tableText));
 
+
+  console.log('\n--- 9. a booked time is a day and a time ---');
+  await tap('#tabs button[data-view="sports"]');
+  await tap('.sport-link');
+  await tap('#sport-settings');
+  const kind = await page.getAttribute('#sport-time', 'type');
+  check('the picker asks for a day and a time', kind === 'datetime-local', kind);
+  await page.fill('#sport-time', '2026-08-01T09:30');
+  await tap('#sport-save');
+  await page.waitForTimeout(400);
+  await tap('#btn-back');           // back to the overview, where the list lives
+  await page.waitForTimeout(400);
+  let lib3 = await stored();
+  const champ3 = lib3.championships.find((c) => c.id === lib3.currentId);
+  check('the day is saved with the time', champ3.sports.some((sp) => sp.time === '2026-08-01T09:30'),
+    JSON.stringify(champ3.sports.map((sp) => sp.time)));
+  const listText = await page.textContent('#sports-body');
+  check('and the list shows the day, not just the clock', /1 Aug|Aug 1/.test(listText),
+    listText.replace(/\s+/g, ' ').slice(0, 160));
+
+  console.log('\n--- 10. a sport shows when it is done ---');
+  await tap('.sport-link');   // the first sport in the list
+  // play every match in this sport
+  for (let i = 0; i < 10; i++) {
+    const open = page.locator('.fixture:not(.played)');
+    if (!(await open.count())) break;
+    const bb = await open.first().boundingBox();
+    await page.touchscreen.tap(bb.x + bb.width / 2, bb.y + bb.height / 2);
+    await page.waitForTimeout(320);
+    const nums = page.locator('#match-body input[type=number]');
+    await nums.nth(0).fill('11');
+    await nums.nth(1).fill('5');
+    await tap('#match-save');
+    await page.waitForTimeout(320);
+  }
+  await tap('#btn-back');
+  await page.waitForTimeout(300);
+  const overview = await page.textContent('#sports-body');
+  check('the finished sport says Done in the overview', /Done/.test(overview),
+    overview.replace(/\s+/g, ' ').slice(0, 200));
+  check('and it is marked as done', (await page.locator('.sport-link.done').count()) >= 1);
+  check('a sport still to play is not marked', (await page.locator('.sport-link:not(.done)').count()) >= 1);
+
+  console.log('\n--- 11. a championship saves to a file and opens again ---');
+  await tap('#btn-menu');
+  check('Save to a file is in the menu', (await page.locator('#menu-export').count()) === 1);
+  check('Open from a file is too', (await page.locator('#menu-import').count()) === 1);
+
+  // what the file holds, and that opening it puts the championship back
+  const saved = await page.evaluate(() => {
+    const lib = JSON.parse(localStorage.getItem('dadchamps.library.v1'));
+    const champ = lib.championships.find((c) => c.id === lib.currentId);
+    return JSON.stringify({ kind: 'dad-championships/championship', championship: champ });
+  });
+  check('the file holds the whole championship',
+    JSON.parse(saved).championship.matches.length > 0 && JSON.parse(saved).championship.players.length > 0);
+
+  await tap('#menu-close');
+  // wipe the phone, then open the file on it
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForTimeout(700);
+  check('the phone is empty again', !(await hidden('#view-setup')));
+
+  await page.setInputFiles('#import-file', {
+    name: 'summer-cup.json', mimeType: 'application/json', buffer: Buffer.from(saved),
+  });
+  await page.waitForTimeout(800);
+  check('opening the file brings the championship back', await hidden('#view-setup'));
+  const back = await stored();
+  const restored = back.championships.find((c) => c.id === back.currentId);
+  check('with every result intact',
+    restored.matches.filter((m) => m.done).length === JSON.parse(saved).championship.matches.filter((m) => m.done).length);
+  check('and the same field', restored.players.length === JSON.parse(saved).championship.players.length);
+
+  // a file that is not a championship is refused rather than swallowed
+  await page.setInputFiles('#import-file', {
+    name: 'holiday.json', mimeType: 'application/json', buffer: Buffer.from('{"hello":"world"}'),
+  });
+  await page.waitForTimeout(600);
+  check('a file that is not a championship is refused', !(await hidden('#toast')));
+  const said = await page.textContent('#toast');
+  check('and it says so plainly', /championship/i.test(said), said);
+
   console.log(`\n${pass} passed, ${fail} failed`);
   await browser.close();
   if (fail) process.exit(1);

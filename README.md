@@ -14,7 +14,9 @@ Live: https://hvejsel.github.io/dad-championships/
 3. Choose the sports. Each sport gets its own game type and point type.
 4. The app draws one match per player per sport and picks the opponents so the
    sports together work through everyone against everyone.
-5. Tap a sport to open it: its matches, its times and its settings live there.
+5. Tap a sport to open it: its matches, its booked day and time, and its
+   settings live there. A sport that has been played all the way out is ticked
+   off in the overview, so what is left is the thing you see.
 6. Tap a match to edit it — who is on each side, and the score.
 7. More time than you thought? **Add a sport** takes the pairings nobody has
    played yet.
@@ -53,6 +55,14 @@ in the menu handles all three:
   agree. Every other result is untouched.
 
 Stand-ins are added, renamed and removed in the same place.
+
+## Times run over days, not hours
+
+A booked time is a **day and a clock time**, because a championship runs over a
+weekend as easily as an afternoon. The list orders itself by when things
+actually happen, across days, and reads the day back the way you would say it:
+"Today 14:30", "Tomorrow 09:00", "Sat 26 Jul 14:30". A championship saved when
+times were clock-only keeps its time and is given the day it was set up.
 
 ## Game types
 
@@ -94,6 +104,18 @@ its matches.
 
 Picking a player who is already in the match swaps the two around, which is how
 you rearrange opponents without emptying the match first.
+
+## A championship in a file
+
+**Save to a file** in the menu writes the whole championship — the field, the
+programme and every result — to one file. On a phone the share sheet opens
+first, so it goes straight to AirDrop, Messages or Mail; on a desktop it
+downloads. **Open from a file** reads one back on any device.
+
+It is a *copy*, not a shared line. Whoever opens the file carries on from that
+point on their own phone; if two people both enter scores afterwards, the two
+copies drift apart. For everyone entering scores at the same time, the
+championship has to live somewhere shared — that needs a server.
 
 ## Storage — a library, not one championship
 

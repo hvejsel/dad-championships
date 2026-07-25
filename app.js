@@ -30,6 +30,8 @@ import {
   addStandIn,
   removeEntrant,
   matchesWith,
+  sportProgress,
+  upgradeTime,
   DEFAULT_STAND_IN,
   winningSide,
   standings,
@@ -41,7 +43,7 @@ import {
 
 /* Shown at the foot of the menu. When something is reported as still broken,
    this is the first thing to ask for: it says whether the fix ever arrived. */
-const APP_VERSION = 10;
+const APP_VERSION = 11;
 const APP_DATE = '25 Jul 2026';
 
 const LIBRARY_KEY = 'dadchamps.library.v1';
@@ -292,6 +294,35 @@ function crestSvg(name, size = 44, key = 'a') {
     <path d="M15 33 h18" stroke="url(#brass-${key})" stroke-width="1.4" stroke-linecap="round"/>
     <circle cx="24" cy="38.5" r="2" fill="url(#brass-${key})"/>
   </svg>`;
+}
+
+/* ---------------------------- a booked time ----------------------------- */
+/* A booked time is a day and a clock time, because a championship can run over
+   a weekend. On screen the day is said the way you would say it out loud. */
+
+const DAY_MS = 86400000;
+
+function startOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+/**
+ * "Today 14:30", "Tomorrow 09:00", "Sat 26 Jul 14:30" — and with short: true,
+ * just enough to fit the chip in the sports list.
+ */
+function whenLabel(value, { short = false } = {}) {
+  if (!value) return '';
+  const when = new Date(value);
+  if (Number.isNaN(when.getTime())) return String(value);
+
+  const clock = when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+  const days = Math.round((startOfDay(when) - startOfDay(new Date())) / DAY_MS);
+  if (days === 0) return `Today ${clock}`;
+  if (days === 1) return `Tomorrow ${clock}`;
+  if (days === -1) return `Yesterday ${clock}`;
+
+  const day = when.toLocaleDateString([], short ? { day: 'numeric', month: 'short' } : { weekday: 'short', day: 'numeric', month: 'short' });
+  return `${day} ${clock}`;
 }
 
 let toastTimer = null;
@@ -581,6 +612,14 @@ function coverageLine() {
   return `<p class="hint cover-line">Still to meet: ${shown}${rest}. Add a sport and the app picks those first.</p>`;
 }
 
+/** Who came out on top of one finished sport, for the overview line. */
+function sportWinner(sportId) {
+  const rows = standings(state, sportId).filter((r) => r.played > 0);
+  if (!rows.length) return null;
+  if (rows.length > 1 && rows[1].points === rows[0].points) return null; // shared
+  return rows[0].name;
+}
+
 function renderSports() {
   const body = $('#sports-body');
   const { done, total } = progress(state.matches);
@@ -595,7 +634,7 @@ function renderSports() {
   const banner = upNext
     ? `<div class="up-next">
          <span class="label">Next up${
-           sportOf(upNext.sportId).time ? ` — ${escapeHtml(sportOf(upNext.sportId).time)}` : ''
+           sportOf(upNext.sportId).time ? ` — ${escapeHtml(whenLabel(sportOf(upNext.sportId).time))}` : ''
          }</span>
          <strong>${escapeHtml(sportName(upNext.sportId))}: ${
            upNext.sides.length > 2
@@ -611,29 +650,36 @@ function renderSports() {
     timed < state.sports.length
       ? `<p class="hint time-hint">${
           state.sports.length - timed === 1 ? '1 sport has' : `${state.sports.length - timed} sports have`
-        } no time yet — open the sport to set it. The list sorts itself by time.</p>`
+        } no day and time yet — open the sport to set it. The list sorts itself by when things happen.</p>`
       : '';
 
   const rows = orderedSports(state.sports)
     .map((sport) => {
       const matches = matchesForSport(state.matches, sport.id);
-      const playedHere = matches.filter((m) => m.done).length;
+      const here = sportProgress(state, sport.id);
       const pedroHere = matches.filter((m) => m.pedro).length;
+      const winner = here.complete ? sportWinner(sport.id) : null;
       return `
-        <button class="sport-link" data-open="${sport.id}">
+        <button class="sport-link ${here.complete ? 'done' : ''}" data-open="${sport.id}">
           <span class="sl-main">
-            <span class="sl-name">${escapeHtml(sport.name)}</span>
-            <span class="sl-meta">${escapeHtml(formatLabel(sport.format))} · ${escapeHtml(
-              scoringSummary(sport)
-            )} · ${matches.length} ${matches.length === 1 ? 'match' : 'matches'}${
-              pedroHere ? ' · Pedro' : ''
+            <span class="sl-name">${escapeHtml(sport.name)}${
+              here.complete ? '<span class="done-tick" aria-hidden="true"></span>' : ''
+            }</span>
+            <span class="sl-meta">${
+              here.complete && winner
+                ? `Done · won by ${escapeHtml(winner)}`
+                : `${escapeHtml(formatLabel(sport.format))} · ${escapeHtml(scoringSummary(sport))} · ${
+                    matches.length
+                  } ${matches.length === 1 ? 'match' : 'matches'}${pedroHere ? ' · Pedro' : ''}`
             }</span>
           </span>
           <span class="sl-right">
             <span class="sl-time ${sport.time ? 'set' : ''}">${
-              sport.time ? escapeHtml(sport.time) : 'no time'
+              sport.time ? escapeHtml(whenLabel(sport.time, { short: true })) : 'no time'
             }</span>
-            <span class="sl-count">${playedHere} / ${matches.length}</span>
+            <span class="sl-count ${here.complete ? 'all-in' : ''}">${
+              here.complete ? 'Done' : `${here.done} / ${here.total}`
+            }</span>
           </span>
           <span class="chev" aria-hidden="true"></span>
         </button>`;
@@ -707,7 +753,7 @@ function renderSportPage() {
       <h2>${escapeHtml(sport.name)}</h2>
       <p class="meta">${escapeHtml(formatLabel(sport.format))} · ${escapeHtml(
         scoringSummary(sport)
-      )} · ${sport.time ? escapeHtml(sport.time) : 'no time yet'} · ${played} of ${
+      )} · ${sport.time ? escapeHtml(whenLabel(sport.time)) : 'no time yet'} · ${played} of ${
         matches.length
       } played</p>
       <div class="two-btns">
@@ -1065,9 +1111,9 @@ function renderNewSportSheet() {
     ${selectHtml({ id: 'new-sport-scoring', options: SCORING_OPTIONS_LONG, value: newSport.scoring, extra: 'sel-wide' })}
     ${winPointsRowHtml('new-sport-winpoints', newSport.scoring, newSport.winPoints)}
 
-    <p class="eyebrow">Booked time (optional)</p>
+    <p class="eyebrow">Booked day and time (optional)</p>
     <div class="time-row">
-      <input id="new-sport-time" type="time" value="${escapeHtml(newSport.time || '')}">
+      <input id="new-sport-time" type="datetime-local" value="${escapeHtml(newSport.time || '')}">
       <button class="link-btn" id="new-sport-time-clear">Clear</button>
     </div>
 
@@ -1239,7 +1285,7 @@ function shareText() {
 
   const timetable = orderedSports(state.sports)
     .filter((s) => s.time)
-    .map((s) => `${s.time}  ${s.name}`);
+    .map((s) => `${whenLabel(s.time)}  ${s.name}`);
 
   return (
     `🏆 ${title}\n${done} of ${total} matches played\n\n${lines.join('\n')}` +
@@ -1277,6 +1323,100 @@ async function share() {
   $('#share-text').value = text;
   $('#share-sheet').hidden = false;
   $('#share-text').select();
+}
+
+/* ========================= A CHAMPIONSHIP IN A FILE ====================== */
+/* One file holds one whole championship: the field, the programme and every
+   result. Send it to whoever is keeping score next and they open it on their
+   own phone. It is a copy, not a shared line — see the note in the menu. */
+
+const FILE_KIND = 'dad-championships/championship';
+
+function championshipFileName(champ) {
+  const stub = champ.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'championship';
+  const day = (champ.updatedAt || champ.createdAt || new Date().toISOString()).slice(0, 10);
+  return `${stub}-${day}.json`;
+}
+
+async function exportChampionship() {
+  if (!state) return;
+  const payload = { kind: FILE_KIND, version: STATE_VERSION, savedAt: new Date().toISOString(), championship: state };
+  const text = JSON.stringify(payload, null, 2);
+  const name = championshipFileName(state);
+  const file = new File([text], name, { type: 'application/json' });
+
+  // On a phone the useful thing is to send it straight on — AirDrop, Messages,
+  // Mail — so the share sheet comes first and saving to Files is one of its
+  // own options. A desktop browser has no share sheet and downloads instead.
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: state.name });
+      return;
+    } catch (error) {
+      if (error && error.name === 'AbortError') return;
+    }
+  }
+
+  try {
+    const url = URL.createObjectURL(file);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast(`Saved as ${name}`);
+  } catch {
+    toast('This phone would not save the file');
+  }
+}
+
+/** What is in the file, or a reason it cannot be used. */
+function readChampionshipFile(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { error: 'That file is not a championship.' };
+  }
+  const raw = parsed && parsed.championship ? parsed.championship : parsed;
+  const champ = migrateState(raw);
+  if (!champ) return { error: 'That file does not hold a championship.' };
+  return { champ };
+}
+
+async function importChampionship(file) {
+  const { champ, error } = readChampionshipFile(await file.text());
+  if (error) {
+    toast(error);
+    return;
+  }
+
+  const existing = library.championships.find((c) => c.id === champ.id);
+  if (existing) {
+    const replace = await ask(`Open ${champ.name}?`, {
+      body: `You already have a championship by that name on this phone. Opening the file replaces what is here with what is in the file.`,
+      yes: 'Replace it',
+      danger: true,
+    });
+    if (!replace) return;
+    library.championships = library.championships.filter((c) => c.id !== champ.id);
+  } else if (!champ.id) {
+    champ.id = newChampionshipId();
+  }
+
+  champ.updatedAt = new Date().toISOString();
+  state = champ;
+  library.championships.unshift(champ);
+  library.currentId = champ.id;
+  saveState();
+  view = 'sports';
+  openSportId = null;
+  tableFilter = 'all';
+  render();
+  window.scrollTo({ top: 0 });
+  toast(`${champ.name} opened`);
 }
 
 /* ============================== THE FIELD =============================== */
@@ -1946,6 +2086,14 @@ $('#menu-delete').onclick = async () => {
 $('#menu-champs').onclick = () => {
   $('#menu').hidden = true;
   openChampsSheet();
+};
+
+$('#menu-export').onclick = () => { $('#menu').hidden = true; exportChampionship(); };
+$('#menu-import').onclick = () => { $('#menu').hidden = true; $('#import-file').click(); };
+$('#import-file').onchange = (event) => {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = ''; // so the same file can be opened twice in a row
+  if (file) importChampionship(file);
 };
 
 /* How much of the screen the on-screen keyboard is covering. The layout
