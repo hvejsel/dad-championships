@@ -616,6 +616,9 @@ group('a saved championship survives an update', () => {
   const migrated = migrateState(old);
 
   check('it is brought up to the current version', migrated.version === STATE_VERSION);
+  check('a championship keeps its own identity through a save',
+    migrateState({ ...old, id: 'cabc123' }).id === 'cabc123');
+  check('and one that never had an identity is not given a false one', migrated.id === null);
   check('the players are kept', migrated.players.map((p) => p.name).join(',') === 'Jesper,Bent');
   check('a clock-only booked time gains the day the championship started',
     migrated.sports[0].time === '2026-07-25T10:30', migrated.sports[0].time);

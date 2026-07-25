@@ -369,6 +369,86 @@ const run = async () => {
   const said = await page.textContent('#toast');
   check('and it says so plainly', /championship/i.test(said), said);
 
+
+  console.log('\n--- 12. a whole championship travels in a link ---');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForTimeout(700);
+  await page.fill('#champ-name-input', 'Link Cup');
+  await page.selectOption('[data-count="players"]', '5');
+  await page.waitForTimeout(300);
+  for (const [i, n] of [[0,'Jesper'],[1,'Far'],[2,'Villads'],[3,'Thomas'],[4,'Anders']]) {
+    await page.locator(`input[data-kind="player"][data-index="${i}"]`).fill(n);
+  }
+  await tap('[data-goto="2"]');
+  await tap('#btn-create');
+  await page.waitForTimeout(600);
+
+  // play a couple of matches so there is something worth sending
+  await tap('.sport-link');
+  for (let i = 0; i < 2; i++) {
+    const open = page.locator('.fixture:not(.played)');
+    if (!(await open.count())) break;
+    const bb = await open.first().boundingBox();
+    await page.touchscreen.tap(bb.x + bb.width / 2, bb.y + bb.height / 2);
+    await page.waitForTimeout(320);
+    const nums = page.locator('#match-body input[type=number]');
+    await nums.nth(0).fill('11');
+    await nums.nth(1).fill(String(4 + i));
+    await tap('#match-save');
+    await page.waitForTimeout(300);
+  }
+  await tap('#btn-back');
+
+  const link = await page.evaluate(async () => {
+    const lib = JSON.parse(localStorage.getItem('dadchamps.library.v1'));
+    const champ = lib.championships.find((c) => c.id === lib.currentId);
+    const json = JSON.stringify(champ);
+    const bytes = new Uint8Array(await new Response(
+      new Blob([json]).stream().pipeThrough(new CompressionStream('deflate-raw'))
+    ).arrayBuffer());
+    let binary = '';
+    for (const b of bytes) binary += String.fromCharCode(b);
+    const packed = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return { url: location.href.split('#')[0] + '#c=' + packed, raw: json.length, packed: packed.length };
+  });
+  console.log(`  the championship is ${link.raw} characters, the link ${link.packed}`);
+  check('the link is small enough to send in a chat', link.packed < 4000, `${link.packed} characters`);
+  check('and it squeezes down to a fraction of the raw size', link.packed < link.raw / 2);
+
+  // a second phone, which has never seen this championship
+  const other = await ctx.newPage();
+  await other.goto(link.url);
+  await other.waitForTimeout(1200);
+  const opened = await other.evaluate(() => {
+    const lib = JSON.parse(localStorage.getItem('dadchamps.library.v1') || 'null');
+    if (!lib) return null;
+    const champ = lib.championships.find((c) => c.id === lib.currentId);
+    return {
+      name: champ.name,
+      players: champ.players.map((p) => p.name),
+      played: champ.matches.filter((m) => m.done).length,
+      sports: champ.sports.length,
+      hash: location.hash,
+    };
+  });
+  check('the link opens the championship on a phone that never had it', opened && opened.name === 'Link Cup', JSON.stringify(opened));
+  check('with the whole field', opened.players.join(',') === 'Jesper,Far,Villads,Thomas,Anders', JSON.stringify(opened.players));
+  check('and the results already entered', opened.played === 2, String(opened.played));
+  check('and every sport', opened.sports === 3, String(opened.sports));
+  check('the address is cleaned so a refresh cannot open it twice', opened.hash === '', JSON.stringify(opened.hash));
+
+  await other.reload();
+  await other.waitForTimeout(800);
+  const stillOne = await other.evaluate(() => JSON.parse(localStorage.getItem('dadchamps.library.v1')).championships.length);
+  check('refreshing does not add it a second time', stillOne === 1, String(stillOne));
+
+  // a link that is not a championship says so instead of doing nothing
+  await other.goto(link.url.split('#')[0] + '#c=notachampionship');
+  await other.waitForTimeout(900);
+  check('a broken link is refused out loud', !(await other.evaluate(() => document.querySelector('#toast').hidden)));
+  await other.close();
+
   console.log(`\n${pass} passed, ${fail} failed`);
   await browser.close();
   if (fail) process.exit(1);

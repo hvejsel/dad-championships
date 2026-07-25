@@ -105,6 +105,24 @@ its matches.
 Picking a player who is already in the match swaps the two around, which is how
 you rearrange opponents without emptying the match first.
 
+## A championship in a link
+
+**Send the championship** puts the whole thing — field, programme, every result
+— inside a link and opens the phone's share sheet, so it goes into the family
+chat like any other link. Whoever taps it has the championship on their own
+phone, with no app to install and no account. A five-player, three-sport
+championship makes a link of about 600 characters.
+
+Nothing is uploaded: the championship travels inside the link itself, after the
+`#`, which browsers never send to a server. Tapping a link while the app is
+already open works too — the app watches for it.
+
+Why a link and not a file the app keeps updated by itself: a browser on a phone
+**cannot** write a file on its own. `showSaveFilePicker` does not exist in
+Safari, on the phone or on the Mac — only Chrome and Edge on a computer have
+it. A link is the one route that works on the device the app is actually used
+on.
+
 ## A championship in a file
 
 **Save to a file** in the menu writes the whole championship — the field, the
@@ -112,10 +130,11 @@ programme and every result — to one file. On a phone the share sheet opens
 first, so it goes straight to AirDrop, Messages or Mail; on a desktop it
 downloads. **Open from a file** reads one back on any device.
 
-It is a *copy*, not a shared line. Whoever opens the file carries on from that
-point on their own phone; if two people both enter scores afterwards, the two
-copies drift apart. For everyone entering scores at the same time, the
-championship has to live somewhere shared — that needs a server.
+A link and a file are both a *copy*, not a shared line. Whoever opens one
+carries on from that point on their own phone; if two people both enter scores
+afterwards, the two copies drift apart, and neither a file in a shared folder
+nor a link can merge them. For everyone entering scores at the same time the
+championship has to live somewhere shared, which needs a server.
 
 ## Storage — a library, not one championship
 

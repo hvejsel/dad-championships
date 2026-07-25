@@ -738,8 +738,13 @@ export function migrateState(saved) {
 
   return {
     version: STATE_VERSION,
+    // the championship's own identity has to survive a trip through a file or
+    // a link, or the phone at the other end cannot tell a copy of one it
+    // already has from a brand new championship
+    id: saved.id || null,
     name: saved.name || DEFAULT_NAME,
     createdAt: saved.createdAt || null,
+    updatedAt: saved.updatedAt || null,
     players: saved.players.map((p, i) => ({
       id: p.id || `p${i + 1}`,
       name: p.name || `Player ${i + 1}`,

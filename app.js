@@ -43,7 +43,7 @@ import {
 
 /* Shown at the foot of the menu. When something is reported as still broken,
    this is the first thing to ask for: it says whether the fix ever arrived. */
-const APP_VERSION = 11;
+const APP_VERSION = 12;
 const APP_DATE = '25 Jul 2026';
 
 const LIBRARY_KEY = 'dadchamps.library.v1';
@@ -1325,6 +1325,129 @@ async function share() {
   $('#share-text').select();
 }
 
+/* ====================== A CHAMPIONSHIP IN A LINK ======================== */
+/* A phone browser cannot write a file by itself — Safari has no such thing, on
+   the phone or the Mac; only Chrome on a computer can. So the way to hand a
+   championship to everybody is the one thing every phone can already do: send
+   a link. The whole championship travels inside it, squeezed down and tacked
+   on after the #, which means it never leaves the family chat for a server. */
+
+const LINK_MARK = '#c=';
+const LINK_LIMIT = 16000; // beyond this a link stops being reliable to send
+
+function bytesToBase64Url(bytes) {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64UrlToBytes(text) {
+  const padded = text.replace(/-/g, '+').replace(/_/g, '/');
+  const binary = atob(padded + '='.repeat((4 - (padded.length % 4)) % 4));
+  return Uint8Array.from(binary, (c) => c.charCodeAt(0));
+}
+
+async function squeeze(text) {
+  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function unsqueeze(bytes) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Response(stream).text();
+}
+
+async function championshipLink(champ) {
+  const packed = bytesToBase64Url(await squeeze(JSON.stringify(champ)));
+  const base = location.href.split('#')[0].split('?')[0];
+  return `${base}${LINK_MARK}${packed}`;
+}
+
+/** Send the whole championship to whoever should have it. */
+async function shareChampionship() {
+  if (!state) return;
+  let link;
+  try {
+    link = await championshipLink(state);
+  } catch {
+    toast('Could not build the link');
+    return;
+  }
+
+  if (link.length > LINK_LIMIT) {
+    toast('This championship is too big for a link — use Save to a file');
+    return;
+  }
+
+  const text = `${state.name} — open it here:`;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: state.name, text, url: link });
+      return;
+    } catch (error) {
+      if (error && error.name === 'AbortError') return;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(link);
+    toast('Link copied — paste it to the others');
+    return;
+  } catch {
+    /* no clipboard here — show it instead */
+  }
+  $('#share-text').value = link;
+  $('#share-sheet').hidden = false;
+  $('#share-text').select();
+}
+
+/**
+ * Someone opened a link with a championship in it. It is added to this phone's
+ * own library, so opening a link never costs you what you already had.
+ */
+async function openFromLink() {
+  const hash = location.hash || '';
+  if (!hash.startsWith(LINK_MARK)) return false;
+
+  // taken out of the address straight away, so a refresh cannot open it twice
+  const packed = hash.slice(LINK_MARK.length);
+  history.replaceState(null, '', location.pathname + location.search);
+
+  let champ = null;
+  try {
+    champ = migrateState(JSON.parse(await unsqueeze(base64UrlToBytes(packed))));
+  } catch {
+    champ = null;
+  }
+  if (!champ) {
+    toast('That link does not hold a championship');
+    return false;
+  }
+
+  const mine = champ.id ? library.championships.find((c) => c.id === champ.id) : null;
+  if (mine) {
+    const replace = await ask(`Open ${champ.name}?`, {
+      body: 'You already have this championship on this phone. Opening the link replaces your copy with the one in the link.',
+      yes: 'Use the link',
+      danger: true,
+    });
+    if (!replace) return false;
+    library.championships = library.championships.filter((c) => c.id !== champ.id);
+  }
+  if (!champ.id) champ.id = newChampionshipId();
+
+  champ.updatedAt = new Date().toISOString();
+  state = champ;
+  library.championships.unshift(champ);
+  library.currentId = champ.id;
+  saveState();
+  view = 'sports';
+  openSportId = null;
+  tableFilter = 'all';
+  render();
+  toast(`${champ.name} opened`);
+  return true;
+}
+
 /* ========================= A CHAMPIONSHIP IN A FILE ====================== */
 /* One file holds one whole championship: the field, the programme and every
    result. Send it to whoever is keeping score next and they open it on their
@@ -1393,7 +1516,7 @@ async function importChampionship(file) {
     return;
   }
 
-  const existing = library.championships.find((c) => c.id === champ.id);
+  const existing = champ.id ? library.championships.find((c) => c.id === champ.id) : null;
   if (existing) {
     const replace = await ask(`Open ${champ.name}?`, {
       body: `You already have a championship by that name on this phone. Opening the file replaces what is here with what is in the file.`,
@@ -2088,6 +2211,7 @@ $('#menu-champs').onclick = () => {
   openChampsSheet();
 };
 
+$('#menu-share-champ').onclick = () => { $('#menu').hidden = true; shareChampionship(); };
 $('#menu-export').onclick = () => { $('#menu').hidden = true; exportChampionship(); };
 $('#menu-import').onclick = () => { $('#menu').hidden = true; $('#import-file').click(); };
 $('#import-file').onchange = (event) => {
@@ -2120,6 +2244,11 @@ window.addEventListener('scroll', syncTopbar, { passive: true });
 syncTopbar();
 
 render();
+
+// a link with a championship in it opens straight into that championship —
+// on the first load, and again if a link is tapped while the app is open
+openFromLink();
+window.addEventListener('hashchange', openFromLink);
 
 /* ============================ KEEPING IT CURRENT ======================== */
 /* Added to the home screen, the app has no reload button, and the phone
