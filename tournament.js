@@ -1,9 +1,12 @@
 // Tournament engine: roster, the programme and the standings.
 // Pure functions only — no DOM, no storage. Imported by app.js and by test.mjs.
 
-export const WIN_POINTS = 3;
+export const DEFAULT_WIN_POINTS = 3;
 export const DRAW_POINTS = 1;
 export const LOSS_POINTS = 0;
+
+/** What a win can be worth. Chosen per sport, so a sport can carry more weight. */
+export const WIN_POINT_CHOICES = [1, 2, 3, 4, 5, 6, 8, 10, 15, 20, 25, 50];
 
 // Three generations play the same championship.
 export const GENERATIONS = [
@@ -22,8 +25,8 @@ export function generationLabel(id) {
  * everybody on the course at the same time, which is how mini golf is played.
  */
 export const FORMATS = [
-  { id: '1v1', label: '1 v 1', note: 'Singles, everyone meets everyone', min: 2 },
-  { id: '2v2', label: '2 v 2', note: 'Doubles, partners rotate', min: 4 },
+  { id: '1v1', label: '1 v 1', note: 'Singles, one match each', min: 2 },
+  { id: '2v2', label: '2 v 2', note: 'Doubles, one match each', min: 4 },
   { id: 'ffa', label: 'All vs all', note: 'One round, everybody at once', min: 2 },
 ];
 
@@ -43,13 +46,20 @@ export function teamSize(format) {
 
 /** How points are handed out. Set per sport, not per championship. */
 export const SCORINGS = [
-  { id: 'match', label: 'Win = 3', note: 'Draw 1, loss 0' },
+  { id: 'match', label: 'Winner gets points', note: 'The winner takes the points you set' },
   { id: 'score', label: 'Score counts', note: 'Every point you score' },
 ];
 
 export function scoringLabel(id) {
   const found = SCORINGS.find((s) => s.id === id);
   return found ? found.label : SCORINGS[0].label;
+}
+
+/** The short summary of a sport's point type, for a list row. */
+export function scoringSummary(sport) {
+  if (sport.scoring === 'score') return 'Score counts';
+  const points = sport.winPoints || DEFAULT_WIN_POINTS;
+  return `Win = ${points}`;
 }
 
 /* --------------------------- the running order --------------------------- */
@@ -67,6 +77,11 @@ export function orderedSports(sports) {
   });
 }
 
+/** The order the sports were added in — the order the programme is drawn in. */
+export function sportsByOrder(sports) {
+  return sports.slice().sort((a, b) => a.order - b.order);
+}
+
 export function matchesForSport(matches, sportId) {
   return matches.filter((m) => m.sportId === sportId);
 }
@@ -80,7 +95,7 @@ export function orderedMatches(state) {
   return out;
 }
 
-/* ---------------------------- the programme ----------------------------- */
+/* ----------------------------- the rotation ------------------------------ */
 
 const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 
@@ -94,27 +109,29 @@ export function allPairs(ids) {
 }
 
 /**
- * A full round robin by the circle method: every player meets every other
- * player exactly once, and the rounds spread a player's matches out instead of
- * stacking them back to back.
+ * The rounds of a full round robin, by the circle method. One round gives every
+ * player exactly one match (with an odd number, one player sits out), and the
+ * rounds together cover every pairing exactly once.
  */
-export function singlesFixtures(ids) {
+export function singlesRounds(ids) {
   if (ids.length < 2) return [];
-  const BYE = Symbol('bye');
+  const BYE = '__bye';
   const wheel = ids.slice();
   if (wheel.length % 2) wheel.push(BYE);
   const n = wheel.length;
-  const out = [];
+  const rounds = [];
 
   for (let round = 0; round < n - 1; round++) {
+    const matches = [];
     for (let i = 0; i < n / 2; i++) {
       const a = wheel[i];
       const b = wheel[n - 1 - i];
-      if (a !== BYE && b !== BYE) out.push([[a], [b]]);
+      if (a !== BYE && b !== BYE) matches.push([[a], [b]]);
     }
+    rounds.push(matches);
     wheel.splice(1, 0, wheel.pop()); // hold the first seat, rotate the rest
   }
-  return out;
+  return rounds;
 }
 
 /**
@@ -178,21 +195,89 @@ export function doublesFixtures(ids) {
   return out;
 }
 
-/**
- * The sides of every match this sport needs, built from its format. This is
- * what makes the app set up the championship itself: you choose the format,
- * it works out who plays whom.
- */
-export function fixturesFor(playerIds, format) {
-  if (format === 'ffa') return playerIds.length >= 2 ? [playerIds.map((id) => [id])] : [];
-  if (format === '2v2') return doublesFixtures(playerIds);
-  return singlesFixtures(playerIds);
+/** Deal matches into rounds so no player appears twice in the same round. */
+function packIntoRounds(matches) {
+  const rounds = [];
+  for (const sides of matches) {
+    const players = sides.flat();
+    let round = rounds.find((r) => !r.some((m) => m.flat().some((id) => players.includes(id))));
+    if (!round) {
+      round = [];
+      rounds.push(round);
+    }
+    round.push(sides);
+  }
+  return rounds;
 }
 
-/** How many matches a format produces — used by the setup preview. */
-export function fixtureCount(playerCount, format) {
-  const ids = Array.from({ length: playerCount }, (_, i) => `p${i + 1}`);
-  return fixturesFor(ids, format).length;
+/**
+ * The rounds this format can be played in. A sport plays exactly ONE of these
+ * rounds, so every player has one opponent per sport; the sports together work
+ * through the rounds until everyone has met everyone.
+ */
+export function roundsFor(playerIds, format) {
+  if (format === 'ffa') return playerIds.length >= 2 ? [[playerIds.map((id) => [id])]] : [];
+  if (format === '2v2') return packIntoRounds(doublesFixtures(playerIds));
+  return singlesRounds(playerIds);
+}
+
+/**
+ * Who faced whom head to head, as a set of pair keys. An all-vs-all round puts
+ * everybody on the course at once rather than giving anyone a named opponent,
+ * so it does not count as having met — those sports are skipped here.
+ */
+function metPairsIn(matches, skipSportId = null) {
+  const met = new Set();
+  for (const match of matches) {
+    if (skipSportId && match.sportId === skipSportId) continue;
+    if (match.sides.length !== 2) continue;
+    for (let i = 0; i < match.sides.length; i++) {
+      for (let j = i + 1; j < match.sides.length; j++) {
+        for (const a of match.sides[i].players) {
+          for (const b of match.sides[j].players) met.add(pairKey(a, b));
+        }
+      }
+    }
+  }
+  return met;
+}
+
+function newPairsInRound(round, met) {
+  const fresh = new Set();
+  for (const sides of round) {
+    for (let i = 0; i < sides.length; i++) {
+      for (let j = i + 1; j < sides.length; j++) {
+        for (const a of sides[i]) {
+          for (const b of sides[j]) {
+            const key = pairKey(a, b);
+            if (!met.has(key)) fresh.add(key);
+          }
+        }
+      }
+    }
+  }
+  return fresh.size;
+}
+
+/**
+ * How far the championship has got towards everyone having met everyone, and
+ * which pairings are still missing. This is what another sport buys you.
+ */
+export function pairCoverage(state) {
+  const ids = state.players.map((p) => p.id);
+  const met = metPairsIn(state.matches);
+  const missing = allPairs(ids).filter(([a, b]) => !met.has(pairKey(a, b)));
+  const total = (ids.length * (ids.length - 1)) / 2;
+  return { met: total - missing.length, total, missing };
+}
+
+/** In an odd field somebody has to sit a sport out. */
+export function playersSittingOut(state, sportId) {
+  const playing = new Set();
+  for (const match of matchesForSport(state.matches, sportId)) {
+    for (const side of match.sides) for (const id of side.players) playing.add(id);
+  }
+  return state.players.filter((p) => !playing.has(p.id));
 }
 
 function makeMatch(state, sportId, sides) {
@@ -205,46 +290,61 @@ function makeMatch(state, sportId, sides) {
   };
 }
 
-/** Build (or rebuild) the programme for one sport. Other sports are untouched. */
+/**
+ * The matches for one sport: the round that brings the most new pairings, so
+ * the sports together work towards everyone having played everyone. Other
+ * sports are left alone.
+ */
 export function buildProgramme(state, sportId) {
   const sport = state.sports.find((s) => s.id === sportId);
   if (!sport) return [];
-  const ids = state.players.map((p) => p.id);
-  return fixturesFor(ids, sport.format).map((sides) => makeMatch(state, sportId, sides));
+  const rounds = roundsFor(state.players.map((p) => p.id), sport.format);
+  if (!rounds.length) return [];
+
+  const met = metPairsIn(state.matches, sportId);
+  let bestIndex = 0;
+  let bestFresh = -1;
+  rounds.forEach((round, index) => {
+    const fresh = newPairsInRound(round, met);
+    if (fresh > bestFresh) {
+      bestFresh = fresh;
+      bestIndex = index;
+    }
+  });
+
+  return rounds[bestIndex].map((sides) => makeMatch(state, sportId, sides));
 }
 
-/** The whole championship, every sport, from scratch. */
+/** The whole championship, every sport, from scratch and in the order added. */
 export function buildAllProgrammes(state) {
   state.nextMatchNo = 0;
-  state.matches = state.sports.flatMap((sport) => buildProgramme(state, sport.id));
+  state.matches = [];
+  for (const sport of sportsByOrder(state.sports)) {
+    state.matches.push(...buildProgramme(state, sport.id));
+  }
   return state.matches;
 }
 
-/* ------------------------- hand-picked extra match ----------------------- */
-
-/** A hand-added match is only playable with full, non-overlapping sides. */
-export function validateMatch(teamA, teamB, format) {
-  const size = teamSize(format);
-  if (teamA.length !== size || teamB.length !== size) {
-    return size === 1 ? 'Pick one player on each side.' : 'Pick two players on each side.';
-  }
-  const everyone = [...teamA, ...teamB];
-  if (new Set(everyone).size !== everyone.length) return 'Nobody can play against themselves.';
-  return null;
+/** How many matches one sport holds — one per player, two players per match. */
+export function matchesPerSport(playerCount, format) {
+  const ids = Array.from({ length: playerCount }, (_, i) => `p${i + 1}`);
+  const rounds = roundsFor(ids, format);
+  return rounds.length ? rounds[0].length : 0;
 }
 
-export function createMatch(state, sportId, teamA, teamB) {
-  const sport = state.sports.find((s) => s.id === sportId);
-  const error = validateMatch(teamA, teamB, sport ? sport.format : '1v1');
-  if (error) throw new Error(error);
-  return makeMatch(state, sportId, [teamA, teamB]);
+/** How many sports of this game type it takes before everyone has met everyone. */
+export function sportsToCoverEveryone(playerCount, format) {
+  if (format === 'ffa') return playerCount >= 2 ? 1 : 0;
+  const ids = Array.from({ length: playerCount }, (_, i) => `p${i + 1}`);
+  return roundsFor(ids, format).length;
 }
 
 /* ------------------------------- standings ------------------------------- */
 
-export function matchPointsFor(scoreFor, scoreAgainst) {
-  if (scoreFor > scoreAgainst) return WIN_POINTS;
-  if (scoreFor === scoreAgainst) return DRAW_POINTS;
+export function matchPointsFor(scoreFor, scoreAgainst, winPoints = DEFAULT_WIN_POINTS) {
+  if (scoreFor > scoreAgainst) return winPoints;
+  // A draw is worth a point, unless a win is only worth one itself.
+  if (scoreFor === scoreAgainst) return winPoints > 1 ? DRAW_POINTS : 0;
   return LOSS_POINTS;
 }
 
@@ -263,8 +363,8 @@ export function winningSide(match) {
 
 /**
  * Standings for the whole championship, or for one sport when sportId is given.
- * Each sport carries its own point type: 'match' rewards the result (3/1/0),
- * 'score' counts every point a player put on the board.
+ * Each sport carries its own point type: 'match' gives the winner the points
+ * that sport is worth, 'score' counts every point a player put on the board.
  */
 export function standings(state, sportId = null) {
   const rows = new Map(
@@ -291,6 +391,7 @@ export function standings(state, sportId = null) {
     if (sportId && match.sportId !== sportId) continue;
     const sport = state.sports.find((s) => s.id === match.sportId);
     const scoring = (sport && sport.scoring) || 'match';
+    const winPoints = (sport && sport.winPoints) || DEFAULT_WIN_POINTS;
     const scores = match.sides.map((side) => side.score ?? 0);
 
     match.sides.forEach((side, index) => {
@@ -309,7 +410,7 @@ export function standings(state, sportId = null) {
         if (scoreFor > against) row.won += 1;
         else if (scoreFor === against) row.drawn += 1;
         else row.lost += 1;
-        row.points += scoring === 'score' ? scoreFor : matchPointsFor(scoreFor, against);
+        row.points += scoring === 'score' ? scoreFor : matchPointsFor(scoreFor, against, winPoints);
       }
     });
   }
@@ -331,4 +432,57 @@ export function nextUnplayed(state) {
 export function progress(matches) {
   const done = matches.filter((m) => m.done).length;
   return { done, total: matches.length };
+}
+
+/* ------------------------------- storage -------------------------------- */
+
+export const STATE_VERSION = 4;
+
+/**
+ * Bring a championship saved by an older version of the app up to date, in
+ * place, so a running championship survives an update instead of being lost.
+ * Anything already played is kept exactly as it was.
+ */
+export function migrateState(saved) {
+  if (!saved || !Array.isArray(saved.players) || !Array.isArray(saved.sports)) return null;
+
+  const sports = saved.sports.map((sport, i) => ({
+    id: sport.id || `s${i + 1}`,
+    name: sport.name || `Sport ${i + 1}`,
+    order: typeof sport.order === 'number' ? sport.order : i,
+    format: sport.format || '1v1',
+    // point type used to live on the championship; keep what was chosen there
+    scoring: sport.scoring || saved.scoring || 'match',
+    winPoints: sport.winPoints || DEFAULT_WIN_POINTS,
+    time: sport.time || null,
+  }));
+
+  const matches = (saved.matches || []).map((match, i) => {
+    // matches used to be two named teams with two scores
+    const sides = match.sides
+      ? match.sides.map((side) => ({ players: side.players.slice(), score: side.score ?? null }))
+      : [
+          { players: (match.teamA || []).slice(), score: match.scoreA ?? null },
+          { players: (match.teamB || []).slice(), score: match.scoreB ?? null },
+        ];
+    return {
+      id: match.id || `m${i + 1}`,
+      sportId: match.sportId,
+      sides,
+      done: Boolean(match.done),
+    };
+  });
+
+  return {
+    version: STATE_VERSION,
+    createdAt: saved.createdAt || null,
+    players: saved.players.map((p, i) => ({
+      id: p.id || `p${i + 1}`,
+      name: p.name || `Player ${i + 1}`,
+      generation: p.generation || 'dad',
+    })),
+    sports,
+    matches,
+    nextMatchNo: saved.nextMatchNo || matches.length,
+  };
 }

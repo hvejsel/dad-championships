@@ -703,8 +703,9 @@ button { font-family: inherit; }
   line-height: 1.45;
 }
 
+/* add a sport later, when the day turns out to have more time in it */
 .add-match {
-  margin-top: 10px;
+  margin-top: 22px;
   width: 100%;
   min-height: 44px;
   border: 0;
@@ -720,67 +721,19 @@ button { font-family: inherit; }
 .add-match:active { background: var(--card-sunk); }
 .add-match span { font-weight: 400; margin-right: 2px; }
 
-/* ---------------------------- the match builder ------------------------- */
+/* ------------------ the field that is still to be covered ---------------- */
 
-.pick-counts {
-  display: flex;
-  gap: 8px;
-  margin: 0 0 12px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-.pick-counts span {
-  flex: 1;
-  text-align: center;
-  padding: 7px;
-  border-radius: 9px;
-}
-.pick-counts .side-a { background: var(--court-wash); color: var(--court-deep); }
-.pick-counts .side-b { background: var(--brass-wash); color: var(--brass-ink); }
+/* who has not met whom yet — the reason to add another sport */
+.cover-line { margin: 10px 2px 4px; font-size: 13.5px; line-height: 1.45; }
+.cover-line.met { color: var(--grass); font-weight: 600; }
 
-.pick-list {
-  background: var(--card);
-  border-radius: var(--r-card);
-  box-shadow: var(--lift);
-  overflow: hidden;
-  margin-bottom: 14px;
-  max-height: 46dvh;
-  overflow-y: auto;
+/* an odd field means somebody has to sit a sport out */
+.sitting-out {
+  margin: 9px 4px 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+  line-height: 1.45;
 }
-.pick-row {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  border: 0;
-  background: none;
-  padding: 12px 16px;
-  min-height: var(--tap);
-  cursor: pointer;
-  text-align: left;
-  color: var(--ink);
-  transition: background .12s;
-}
-.pick-row + .pick-row { border-top: 1px solid var(--chalk-soft); }
-.pick-row:active { background: var(--card-sunk); }
-.pick-name { font-size: 16px; font-weight: 600; letter-spacing: -0.2px; }
-.pick-slot {
-  margin-left: auto;
-  width: 27px; height: 27px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 12px;
-  font-weight: 800;
-  flex: none;
-  color: transparent;
-}
-.pick-row.side-a { background: var(--court-wash); }
-.pick-row.side-a .pick-slot { background: var(--court); color: #fff; }
-.pick-row.side-b { background: var(--brass-wash); }
-.pick-row.side-b .pick-slot { background: var(--brass); color: #fff; }
 
 /* ---------------------------- sport settings ---------------------------- */
 
@@ -815,6 +768,18 @@ button { font-family: inherit; }
   padding: 8px 2px;
   flex: none;
 }
+
+/* a sheet gives every choice its own line, so a thumb cannot miss */
+.sheet .eyebrow { margin-top: 16px; }
+.sheet-input {
+  background: var(--card-sunk);
+  border-radius: var(--r-control);
+  margin-bottom: 18px;
+  font-weight: 600;
+}
+.win-points-row { margin: 0; }
+#new-sport-body .preview { margin: 18px 0 14px; }
+#new-sport-body .time-row { margin-bottom: 4px; }
 
 .champion-strip { text-align: center; padding: 4px 0 10px; }
 

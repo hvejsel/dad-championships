@@ -103,17 +103,15 @@
 
 </div>
 
-<!-- pick the two sides of a match -->
-<div id="pick-sheet" class="sheet" hidden>
+<!-- a sport added later, when there turns out to be more time -->
+<div id="new-sport-sheet" class="sheet" hidden>
   <div class="sheet-card">
     <div class="grabber"></div>
-    <p class="sheet-sport" id="pick-title"></p>
-    <p class="pick-counts" id="pick-counts"></p>
-    <div class="pick-list" id="pick-list"></div>
-    <p class="error" id="pick-error" hidden></p>
+    <h2>Add a sport</h2>
+    <div id="new-sport-body"></div>
     <div class="row-btns">
-      <button class="ghost" id="pick-cancel">Cancel</button>
-      <button class="primary" id="pick-save">Add match</button>
+      <button class="ghost" id="new-sport-cancel">Cancel</button>
+      <button class="primary" id="new-sport-save">Add the sport</button>
     </div>
   </div>
 </div>
@@ -128,7 +126,6 @@
       <button class="ghost" id="sheet-cancel">Cancel</button>
       <button class="primary" id="sheet-save">Save result</button>
     </div>
-    <button class="danger wide" id="sheet-remove">Remove this match</button>
   </div>
 </div>
 
@@ -149,7 +146,7 @@
 
     <p class="eyebrow">Point type</p>
     <div id="sport-scoring-field"></div>
-    <p class="hint">A new game type means a new programme for this sport. Other sports keep theirs.</p>
+    <p class="hint">A new game type means a new match for this sport. Other sports keep theirs.</p>
 
     <div class="row-btns">
       <button class="ghost" id="sport-cancel">Cancel</button>

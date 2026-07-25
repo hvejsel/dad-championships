@@ -4,24 +4,28 @@ import {
   FORMATS,
   formatLabel,
   SCORINGS,
-  scoringLabel,
-  teamSize,
+  scoringSummary,
+  WIN_POINT_CHOICES,
+  DEFAULT_WIN_POINTS,
   isFreeForAll,
   orderedSports,
   matchesForSport,
-  orderedMatches,
-  fixtureCount,
+  matchesPerSport,
+  sportsToCoverEveryone,
+  pairCoverage,
+  playersSittingOut,
   buildProgramme,
   buildAllProgrammes,
-  validateMatch,
-  createMatch,
   winningSide,
   standings,
   nextUnplayed,
   progress,
+  migrateState,
+  STATE_VERSION,
 } from './tournament.js';
 
 const STATE_KEY = 'dadchamps.state.v3';
+const LEGACY_STATE_KEYS = ['dadchamps.state.v2'];
 const DRAFT_KEY = 'dadchamps.draft.v3';
 
 const SPORT_SUGGESTIONS = [
@@ -40,6 +44,9 @@ const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
 
 /* ----------------------------- persistence ----------------------------- */
+/* Everything lives on the phone that keeps score: it survives a refresh, a
+   restart and a day with no signal. The store is migrated in place on load, so
+   an app update never costs you a running championship.                     */
 
 function load(key, fallback) {
   try {
@@ -58,9 +65,23 @@ function save(key, value) {
   }
 }
 
+function loadChampionship() {
+  let saved = load(STATE_KEY, null);
+  if (!saved) {
+    // a championship saved by an older version of the app is taken over
+    for (const key of LEGACY_STATE_KEYS) {
+      saved = load(key, null);
+      if (saved) break;
+    }
+  }
+  const migrated = migrateState(saved);
+  if (migrated && (!saved || saved.version !== STATE_VERSION)) save(STATE_KEY, migrated);
+  return migrated;
+}
+
 /* -------------------------------- state -------------------------------- */
 
-let state = load(STATE_KEY, null);
+let state = loadChampionship();
 
 let draft = load(DRAFT_KEY, null) || {
   step: 1,
@@ -72,13 +93,14 @@ let draft = load(DRAFT_KEY, null) || {
   sportCustom: [false, false, false],
   sportFormats: ['1v1', '1v1', '1v1'],
   sportScorings: ['match', 'match', 'match'],
+  sportWinPoints: [3, 3, 3],
 };
 
 let view = 'matches';
 let tableFilter = 'all';
 let editingMatchId = null;
 let editingSportId = null;
-let picking = null; // { sportId, sides: Map<playerId, 'a'|'b'> }
+let newSport = null; // the sport being added mid-championship
 
 const saveState = () => save(STATE_KEY, state);
 const saveDraft = () => save(DRAFT_KEY, draft);
@@ -122,9 +144,9 @@ function selectHtml({ id = '', attr = '', options, value, extra = '' }) {
   const opts = options
     .map(
       (o) =>
-        `<option value="${escapeHtml(o.value)}"${o.value === value ? ' selected' : ''}>${escapeHtml(
-          o.label
-        )}</option>`
+        `<option value="${escapeHtml(o.value)}"${
+          String(o.value) === String(value) ? ' selected' : ''
+        }>${escapeHtml(o.label)}</option>`
     )
     .join('');
   return `<span class="sel ${extra}">
@@ -139,6 +161,19 @@ function countOptions(kind, noun) {
     label: `${min + i} ${noun}${min + i === 1 ? '' : 's'}`,
   }));
 }
+
+const FORMAT_OPTIONS = FORMATS.map((f) => ({ value: f.id, label: f.label }));
+const FORMAT_OPTIONS_LONG = FORMATS.map((f) => ({ value: f.id, label: `${f.label} — ${f.note}` }));
+const SCORING_OPTIONS = SCORINGS.map((s) => ({ value: s.id, label: s.label }));
+const SCORING_OPTIONS_LONG = SCORINGS.map((s) => ({ value: s.id, label: `${s.label} — ${s.note}` }));
+const WIN_POINT_OPTIONS = WIN_POINT_CHOICES.map((n) => ({
+  value: String(n),
+  label: `Winner gets ${n}`,
+}));
+const SPORT_NAME_OPTIONS = [
+  ...SPORT_SUGGESTIONS.map((s) => ({ value: s, label: s })),
+  { value: OTHER, label: 'Other sport…' },
+];
 
 /** Brass, silver and bronze discs for the podium; a plain numeral below it. */
 function medal(rank) {
@@ -231,17 +266,15 @@ function renderSportRows() {
     const name = draft.sportNames[i] || '';
     const format = draft.sportFormats[i] || '1v1';
     const scoring = draft.sportScorings[i] || 'match';
-    const matches = fixtureCount(draft.playerCount, format);
+    const winPoints = draft.sportWinPoints[i] || DEFAULT_WIN_POINTS;
+    const matches = matchesPerSport(draft.playerCount, format);
 
     const row = document.createElement('div');
     row.className = 'sport-row';
     row.innerHTML = `
       ${selectHtml({
         attr: `data-sport-index="${i}" aria-label="Sport ${i + 1}"`,
-        options: [
-          ...SPORT_SUGGESTIONS.map((s) => ({ value: s, label: s })),
-          { value: OTHER, label: 'Other sport…' },
-        ],
+        options: SPORT_NAME_OPTIONS,
         value: custom ? OTHER : name,
         extra: 'sel-title',
       })}
@@ -255,16 +288,26 @@ function renderSportRows() {
       <div class="sport-row-controls">
         ${selectHtml({
           attr: `data-format-index="${i}" aria-label="Game type"`,
-          options: FORMATS.map((f) => ({ value: f.id, label: f.label })),
+          options: FORMAT_OPTIONS,
           value: format,
           extra: 'sel-soft',
         })}
         ${selectHtml({
           attr: `data-scoring-index="${i}" aria-label="Point type"`,
-          options: SCORINGS.map((s) => ({ value: s.id, label: s.label })),
+          options: SCORING_OPTIONS,
           value: scoring,
           extra: 'sel-soft',
         })}
+        ${
+          scoring === 'match'
+            ? selectHtml({
+                attr: `data-winpoints-index="${i}" aria-label="What a win is worth"`,
+                options: WIN_POINT_OPTIONS,
+                value: String(winPoints),
+                extra: 'sel-soft',
+              })
+            : ''
+        }
         <span class="row-note">${
           matches ? `${matches} ${matches === 1 ? 'match' : 'matches'}` : 'needs more players'
         }</span>
@@ -286,13 +329,22 @@ function renderPreview() {
 
   const total = draft.sportFormats
     .slice(0, draft.sportCount)
-    .reduce((sum, format) => sum + fixtureCount(draft.playerCount, format || '1v1'), 0);
+    .reduce((sum, format) => sum + matchesPerSport(draft.playerCount, format || '1v1'), 0);
+
+  // How many sports it takes before everyone has met everyone, counted on the
+  // game type most of the sports use.
+  const heaviest = draft.sportFormats.slice(0, draft.sportCount).includes('1v1') ? '1v1' : draft.sportFormats[0] || '1v1';
+  const needed = sportsToCoverEveryone(draft.playerCount, heaviest);
+  const coverage =
+    draft.sportCount >= needed
+      ? `With <strong>${draft.sportCount}</strong> ${draft.sportCount === 1 ? 'sport' : 'sports'} everyone has met everyone.`
+      : `Everyone has met everyone after <strong>${needed}</strong> sports — you can add more later.`;
 
   $('#setup-preview').innerHTML =
     `<strong>${parts.join(', ')}</strong> across ` +
-    `<strong>${draft.sportCount}</strong> ${draft.sportCount === 1 ? 'sport' : 'sports'}. ` +
-    `The app draws up <strong>${total}</strong> ${total === 1 ? 'match' : 'matches'} by itself, ` +
-    `so everyone meets everyone.<br>` +
+    `<strong>${draft.sportCount}</strong> ${draft.sportCount === 1 ? 'sport' : 'sports'}, ` +
+    `<strong>${total}</strong> ${total === 1 ? 'match' : 'matches'} in all. ` +
+    `One match each per sport. ${coverage}<br>` +
     `You put the times on afterwards, as you book the courts.`;
 
   const error = validateDraft();
@@ -328,11 +380,12 @@ function createChampionship() {
     order: i,
     format: draft.sportFormats[i] || '1v1',
     scoring: draft.sportScorings[i] || 'match',
+    winPoints: draft.sportWinPoints[i] || DEFAULT_WIN_POINTS,
     time: null, // set later, on the match list, as the courts are booked
   }));
 
   state = {
-    version: 3,
+    version: STATE_VERSION,
     createdAt: new Date().toISOString(),
     players,
     sports,
@@ -381,6 +434,20 @@ function fixtureRow(match, upNext) {
     </button>`;
 }
 
+/** What another sport would buy you: the pairings nobody has played yet. */
+function coverageLine() {
+  const { missing } = pairCoverage(state);
+  if (!missing.length) {
+    return '<p class="hint cover-line met">Everyone has met everyone.</p>';
+  }
+  const shown = missing
+    .slice(0, 3)
+    .map(([a, b]) => `${escapeHtml(nameOf(a))}–${escapeHtml(nameOf(b))}`)
+    .join(', ');
+  const rest = missing.length > 3 ? `, and ${missing.length - 3} more` : '';
+  return `<p class="hint cover-line">Still to meet: ${shown}${rest}. Add a sport and the app picks those first.</p>`;
+}
+
 function renderMatches() {
   const body = $('#matches-body');
   const { done, total } = progress(state.matches);
@@ -422,6 +489,7 @@ function renderMatches() {
     .map((sport) => {
       const matches = matchesForSport(state.matches, sport.id);
       const playedHere = matches.filter((m) => m.done).length;
+      const sittingOut = playersSittingOut(state, sport.id);
 
       return `
         <div class="sport-block">
@@ -433,7 +501,7 @@ function renderMatches() {
               </button>
             </div>
             <span>${escapeHtml(formatLabel(sport.format))} · ${escapeHtml(
-              scoringLabel(sport.scoring)
+              scoringSummary(sport)
             )} · ${
               matches.length ? `${playedHere} of ${matches.length} played` : 'no matches'
             }</span>
@@ -446,17 +514,22 @@ function renderMatches() {
           }
 
           ${
-            isFreeForAll(sport.format)
-              ? ''
-              : `<button class="add-match" data-add="${sport.id}">
-                   <span aria-hidden="true">+</span> Add an extra match
-                 </button>`
+            sittingOut.length
+              ? `<p class="sitting-out">Sitting this one out: ${sittingOut
+                  .map((p) => escapeHtml(p.name))
+                  .join(', ')}</p>`
+              : ''
           }
         </div>`;
     })
     .join('');
 
-  body.innerHTML = header + banner + timeHint + blocks;
+  const addSport = `
+    <button class="add-match" id="btn-add-sport">
+      <span aria-hidden="true">+</span> Add a sport
+    </button>`;
+
+  body.innerHTML = header + banner + timeHint + coverageLine() + blocks + addSport;
 
   $$('#matches-body .fixture').forEach((btn) => {
     btn.onclick = () => openScoreSheet(btn.dataset.match);
@@ -464,77 +537,17 @@ function renderMatches() {
   $$('#matches-body .time-chip').forEach((btn) => {
     btn.onclick = () => openSportSheet(btn.dataset.sport);
   });
-  $$('#matches-body .add-match').forEach((btn) => {
-    btn.onclick = () => openPickSheet(btn.dataset.add);
-  });
-}
-
-/* ========================== EXTRA MATCH BUILDER ========================= */
-
-function openPickSheet(sportId) {
-  const sport = sportOf(sportId);
-  picking = { sportId, sides: new Map() };
-  $('#pick-title').textContent = `${sport.name} — ${formatLabel(sport.format)}`;
-  $('#pick-error').hidden = true;
-  renderPickList();
-  $('#pick-sheet').hidden = false;
-}
-
-function renderPickList() {
-  const sport = sportOf(picking.sportId);
-  const size = teamSize(sport.format);
-  const countA = [...picking.sides.values()].filter((v) => v === 'a').length;
-  const countB = [...picking.sides.values()].filter((v) => v === 'b').length;
-
-  $('#pick-counts').innerHTML =
-    `<span class="side-a">Side A ${countA}/${size}</span>` +
-    `<span class="side-b">Side B ${countB}/${size}</span>`;
-
-  $('#pick-list').innerHTML = state.players
-    .map((p) => {
-      const side = picking.sides.get(p.id);
-      return `
-      <button class="pick-row ${side ? `on side-${side}` : ''}" data-pick="${p.id}">
-        <span class="pick-name">${escapeHtml(p.name)}</span>
-        ${genTag(p.generation)}
-        <span class="pick-slot">${side ? side.toUpperCase() : ''}</span>
-      </button>`;
-    })
-    .join('');
-
-  $$('#pick-list .pick-row').forEach((btn) => {
-    btn.onclick = () => {
-      const id = btn.dataset.pick;
-      const current = picking.sides.get(id);
-      // Tapping cycles a player through side A, side B and off again.
-      if (!current) picking.sides.set(id, 'a');
-      else if (current === 'a') picking.sides.set(id, 'b');
-      else picking.sides.delete(id);
-      $('#pick-error').hidden = true;
-      renderPickList();
-    };
-  });
-}
-
-function confirmPick() {
-  const sport = sportOf(picking.sportId);
-  const teamA = [...picking.sides.entries()].filter(([, s]) => s === 'a').map(([id]) => id);
-  const teamB = [...picking.sides.entries()].filter(([, s]) => s === 'b').map(([id]) => id);
-  const error = validateMatch(teamA, teamB, sport.format);
-  if (error) {
-    $('#pick-error').textContent = error;
-    $('#pick-error').hidden = false;
-    return;
-  }
-  state.matches.push(createMatch(state, picking.sportId, teamA, teamB));
-  saveState();
-  $('#pick-sheet').hidden = true;
-  picking = null;
-  render();
-  toast('Match added');
+  $('#btn-add-sport').onclick = openNewSportSheet;
 }
 
 /* ============================ SPORT SETTINGS =========================== */
+
+function winPointsRowHtml(id, scoring, winPoints) {
+  return `<div class="win-points-row" ${scoring === 'match' ? '' : 'hidden'}>
+    <p class="eyebrow">What a win is worth</p>
+    ${selectHtml({ id, options: WIN_POINT_OPTIONS, value: String(winPoints), extra: 'sel-wide' })}
+  </div>`;
+}
 
 function openSportSheet(sportId) {
   const sport = sportOf(sportId);
@@ -544,16 +557,17 @@ function openSportSheet(sportId) {
 
   $('#sport-format-field').innerHTML = selectHtml({
     id: 'sport-format',
-    options: FORMATS.map((f) => ({ value: f.id, label: `${f.label} — ${f.note}` })),
+    options: FORMAT_OPTIONS_LONG,
     value: sport.format,
     extra: 'sel-wide',
   });
-  $('#sport-scoring-field').innerHTML = selectHtml({
-    id: 'sport-scoring',
-    options: SCORINGS.map((s) => ({ value: s.id, label: `${s.label} — ${s.note}` })),
-    value: sport.scoring,
-    extra: 'sel-wide',
-  });
+  $('#sport-scoring-field').innerHTML =
+    selectHtml({
+      id: 'sport-scoring',
+      options: SCORING_OPTIONS_LONG,
+      value: sport.scoring,
+      extra: 'sel-wide',
+    }) + winPointsRowHtml('sport-winpoints', sport.scoring, sport.winPoints || DEFAULT_WIN_POINTS);
 
   $('#sport-sheet').hidden = false;
 }
@@ -563,19 +577,20 @@ function saveSportSheet() {
   const time = $('#sport-time').value || null;
   const format = $('#sport-format').value;
   const scoring = $('#sport-scoring').value;
+  const winPoints = Number($('#sport-winpoints').value) || DEFAULT_WIN_POINTS;
 
   if (format !== sport.format) {
-    const shortage = FORMATS.find((f) => f.id === format);
-    if (state.players.length < shortage.min) {
-      toast(`${shortage.label} needs at least ${shortage.min} players`);
+    const wanted = FORMATS.find((f) => f.id === format);
+    if (state.players.length < wanted.min) {
+      toast(`${wanted.label} needs at least ${wanted.min} players`);
       return;
     }
     const finished = matchesForSport(state.matches, sport.id).filter((m) => m.done).length;
     const question = finished
-      ? `Change ${sport.name} to ${formatLabel(format)}? A new programme is drawn up and the ${finished} ${
+      ? `Change ${sport.name} to ${formatLabel(format)}? A new match is drawn for this sport and the ${finished} ${
           finished === 1 ? 'result' : 'results'
-        } already entered for this sport are lost.`
-      : `Change ${sport.name} to ${formatLabel(format)}? A new programme is drawn up for this sport.`;
+        } already entered for it are lost.`
+      : `Change ${sport.name} to ${formatLabel(format)}? A new match is drawn for this sport.`;
     if (!confirm(question)) return;
 
     sport.format = format;
@@ -583,6 +598,7 @@ function saveSportSheet() {
     state.matches.push(...buildProgramme(state, sport.id));
   }
   sport.scoring = scoring;
+  sport.winPoints = winPoints;
   sport.time = time;
 
   saveState();
@@ -590,6 +606,97 @@ function saveSportSheet() {
   editingSportId = null;
   render();
   toast('Sport updated');
+}
+
+/* =========================== A SPORT ADDED LATER ======================== */
+
+function openNewSportSheet() {
+  const taken = state.sports.map((s) => s.name);
+  const suggestion = SPORT_SUGGESTIONS.find((s) => !taken.includes(s)) || SPORT_SUGGESTIONS[0];
+  newSport = { name: suggestion, custom: false, format: '1v1', scoring: 'match', winPoints: DEFAULT_WIN_POINTS, time: '' };
+  renderNewSportSheet();
+  $('#new-sport-sheet').hidden = false;
+}
+
+function renderNewSportSheet() {
+  const matches = matchesPerSport(state.players.length, newSport.format);
+  const { missing } = pairCoverage(state);
+
+  $('#new-sport-body').innerHTML = `
+    <p class="eyebrow">Sport</p>
+    ${selectHtml({ id: 'new-sport-name', options: SPORT_NAME_OPTIONS, value: newSport.custom ? OTHER : newSport.name, extra: 'sel-wide' })}
+    ${
+      newSport.custom
+        ? `<input type="text" id="new-sport-custom" class="sheet-input" value="${escapeHtml(
+            newSport.name
+          )}" placeholder="Name the sport" autocapitalize="words" autocomplete="off" spellcheck="false">`
+        : ''
+    }
+
+    <p class="eyebrow">Game type</p>
+    ${selectHtml({ id: 'new-sport-format', options: FORMAT_OPTIONS_LONG, value: newSport.format, extra: 'sel-wide' })}
+
+    <p class="eyebrow">Point type</p>
+    ${selectHtml({ id: 'new-sport-scoring', options: SCORING_OPTIONS_LONG, value: newSport.scoring, extra: 'sel-wide' })}
+    ${winPointsRowHtml('new-sport-winpoints', newSport.scoring, newSport.winPoints)}
+
+    <p class="eyebrow">Booked time (optional)</p>
+    <div class="time-row">
+      <input id="new-sport-time" type="time" value="${escapeHtml(newSport.time || '')}">
+      <button class="link-btn" id="new-sport-time-clear">Clear</button>
+    </div>
+
+    <div class="preview">
+      ${
+        matches
+          ? `<strong>${matches}</strong> ${matches === 1 ? 'match' : 'matches'}, one for each player. ` +
+            (missing.length
+              ? `The app picks from the <strong>${missing.length}</strong> ${
+                  missing.length === 1 ? 'pairing' : 'pairings'
+                } nobody has played yet.`
+              : 'Everyone has already met everyone, so this one is for the fun of it.')
+          : `${formatLabel(newSport.format)} needs more players than you have.`
+      }
+    </div>`;
+
+  $('#new-sport-time-clear').onclick = () => { $('#new-sport-time').value = ''; };
+  $('#new-sport-save').disabled = !matches;
+}
+
+function readNewSportSheet() {
+  const custom = $('#new-sport-custom');
+  newSport.time = $('#new-sport-time').value || '';
+  if (custom) newSport.name = custom.value;
+}
+
+function addNewSport() {
+  readNewSportSheet();
+  const name = (newSport.name || '').trim() || 'New sport';
+  const nextNo = state.sports.reduce((max, s) => Math.max(max, Number(String(s.id).slice(1)) || 0), 0) + 1;
+  const sport = {
+    id: `s${nextNo}`,
+    name,
+    order: state.sports.length,
+    format: newSport.format,
+    scoring: newSport.scoring,
+    winPoints: newSport.winPoints,
+    time: newSport.time || null,
+  };
+  state.sports.push(sport);
+  const built = buildProgramme(state, sport.id);
+  if (!built.length) {
+    state.sports.pop();
+    toast(`${formatLabel(sport.format)} needs more players`);
+    return;
+  }
+  state.matches.push(...built);
+
+  saveState();
+  $('#new-sport-sheet').hidden = true;
+  newSport = null;
+  view = 'matches';
+  render();
+  toast(`${name} added`);
 }
 
 /* ============================== SCORE SHEET ============================= */
@@ -607,7 +714,8 @@ function openScoreSheet(matchId) {
   const match = state.matches.find((m) => m.id === matchId);
   if (!match) return;
   editingMatchId = matchId;
-  $('#sheet-sport').textContent = sportName(match.sportId);
+  const sport = sportOf(match.sportId);
+  $('#sheet-sport').textContent = `${sport.name} — ${scoringSummary(sport)}`;
 
   if (match.sides.length > 2) {
     // All vs all: everybody enters his own score in one list.
@@ -646,8 +754,6 @@ function openScoreSheet(matchId) {
     };
   });
 
-  // A generated match belongs to the programme; only an extra one is removable.
-  $('#sheet-remove').hidden = match.sides.length > 2;
   $('#sheet').hidden = false;
 }
 
@@ -693,6 +799,9 @@ function renderTable() {
   chips.querySelectorAll('button').forEach((btn) => {
     btn.onclick = () => { tableFilter = btn.dataset.filter; render(); };
   });
+
+  // A sport can be removed from under a filter; fall back to the overall table.
+  if (tableFilter !== 'all' && !sportOf(tableFilter)) tableFilter = 'all';
 
   const rows = standings(state, tableFilter === 'all' ? null : tableFilter);
   const anyPlayed = rows.some((r) => r.played > 0);
@@ -840,6 +949,7 @@ document.addEventListener('change', (event) => {
   const select = event.target.closest('select');
   if (!select) return;
 
+  // ---- the setup screens
   if (select.dataset.count) {
     const field = select.dataset.count === 'sports' ? 'sportCount' : 'playerCount';
     draft[field] = Number(select.value);
@@ -876,6 +986,48 @@ document.addEventListener('change', (event) => {
     draft.sportScorings[Number(select.dataset.scoringIndex)] = select.value;
     saveDraft();
     renderSetup();
+    return;
+  }
+  if (select.dataset.winpointsIndex !== undefined) {
+    draft.sportWinPoints[Number(select.dataset.winpointsIndex)] = Number(select.value);
+    saveDraft();
+    renderSetup();
+    return;
+  }
+
+  // ---- the sport sheet: the win-points choice only applies to one point type
+  if (select.id === 'sport-scoring') {
+    $('#sport-sheet .win-points-row').hidden = select.value !== 'match';
+    return;
+  }
+
+  // ---- the sheet for a sport added later
+  if (select.id === 'new-sport-name') {
+    readNewSportSheet();
+    if (select.value === OTHER) {
+      newSport.custom = true;
+      newSport.name = '';
+    } else {
+      newSport.custom = false;
+      newSport.name = select.value;
+    }
+    renderNewSportSheet();
+    return;
+  }
+  if (select.id === 'new-sport-format') {
+    readNewSportSheet();
+    newSport.format = select.value;
+    renderNewSportSheet();
+    return;
+  }
+  if (select.id === 'new-sport-scoring') {
+    readNewSportSheet();
+    newSport.scoring = select.value;
+    renderNewSportSheet();
+    return;
+  }
+  if (select.id === 'new-sport-winpoints') {
+    newSport.winPoints = Number(select.value);
   }
 });
 
@@ -898,12 +1050,15 @@ document.addEventListener('click', (event) => {
 
 document.addEventListener('input', (event) => {
   const nameInput = event.target.closest('input[data-kind]');
-  if (!nameInput) return;
-  const index = Number(nameInput.dataset.index);
-  const list = nameInput.dataset.kind === 'sport' ? draft.sportNames : draft.playerNames;
-  list[index] = nameInput.value;
-  saveDraft();
-  renderPreview();
+  if (nameInput) {
+    const index = Number(nameInput.dataset.index);
+    const list = nameInput.dataset.kind === 'sport' ? draft.sportNames : draft.playerNames;
+    list[index] = nameInput.value;
+    saveDraft();
+    renderPreview();
+    return;
+  }
+  if (event.target.id === 'new-sport-custom') newSport.name = event.target.value;
 });
 
 $('#btn-create').onclick = createChampionship;
@@ -911,21 +1066,6 @@ $('#btn-create').onclick = createChampionship;
 $('#sheet-cancel').onclick = closeSheet;
 $('#sheet').onclick = (event) => { if (event.target.id === 'sheet') closeSheet(); };
 $('#sheet-save').onclick = saveScoreSheet;
-$('#sheet-remove').onclick = () => {
-  if (!confirm('Remove this match from the championship?')) return;
-  const id = editingMatchId;
-  closeSheet();
-  state.matches = state.matches.filter((m) => m.id !== id);
-  saveState();
-  render();
-  toast('Match removed');
-};
-
-$('#pick-cancel').onclick = () => { $('#pick-sheet').hidden = true; picking = null; };
-$('#pick-sheet').onclick = (event) => {
-  if (event.target.id === 'pick-sheet') { $('#pick-sheet').hidden = true; picking = null; }
-};
-$('#pick-save').onclick = confirmPick;
 
 $('#sport-cancel').onclick = () => { $('#sport-sheet').hidden = true; editingSportId = null; };
 $('#sport-sheet').onclick = (event) => {
@@ -933,6 +1073,12 @@ $('#sport-sheet').onclick = (event) => {
 };
 $('#sport-save').onclick = saveSportSheet;
 $('#sport-time-clear').onclick = () => { $('#sport-time').value = ''; };
+
+$('#new-sport-cancel').onclick = () => { $('#new-sport-sheet').hidden = true; newSport = null; };
+$('#new-sport-sheet').onclick = (event) => {
+  if (event.target.id === 'new-sport-sheet') { $('#new-sport-sheet').hidden = true; newSport = null; }
+};
+$('#new-sport-save').onclick = addNewSport;
 
 $('#btn-share').onclick = share;
 $('#menu-share').onclick = () => { $('#menu').hidden = true; share(); };
