@@ -33,6 +33,21 @@ which is how a padel americano is normally run.
 
 Ties are split on score difference, then on points scored.
 
+## Design
+
+"Sunlit scorecard." The app is used standing on a court in daylight, so the
+surface is warm paper rather than dark chrome, and the palette comes from the
+world the game is played in: court blue for anything you can touch, brass for
+rank and victory, clay and grass for a negative and positive difference.
+
+The signature is the court: the match card splits the two teams across a net
+line with a centre disc, and that shape repeats in the score editor and in the
+Play tab icon. Rank uses drawn brass, silver and bronze medallions rather than
+emoji. One depth strategy throughout — paper lifted slightly off the desk.
+
+Tokens are named after that world (`--paper`, `--chalk`, `--ink`, `--court`,
+`--brass`, `--clay`, `--grass`), so a value's meaning is readable from its name.
+
 ## Running it
 
 Static files, no build step and no backend. Everything is stored on the phone
