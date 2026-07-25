@@ -41,7 +41,7 @@ import {
 
 /* Shown at the foot of the menu. When something is reported as still broken,
    this is the first thing to ask for: it says whether the fix ever arrived. */
-const APP_VERSION = 9;
+const APP_VERSION = 10;
 const APP_DATE = '25 Jul 2026';
 
 const LIBRARY_KEY = 'dadchamps.library.v1';
@@ -373,6 +373,7 @@ function renderPlayerRows() {
       <input type="text" data-kind="player" data-index="${i}"
              value="${escapeHtml(draft.playerNames[i] || '')}"
              placeholder="Name ${i + 1}"
+             enterkeyhint="next"
              autocapitalize="words" autocomplete="off" spellcheck="false">
       ${selectHtml({
         attr: `data-gen-index="${i}" aria-label="Generation"`,
@@ -1684,6 +1685,22 @@ document.addEventListener('input', (event) => {
   }
 });
 
+/* On a phone the keyboard covers the bottom of the screen while you are typing
+   names. Go / Next on the keyboard moves to the next name, and on the last one
+   it puts the keyboard away — so the step's own button is never the only way
+   forward, and never has to be hunted for underneath a keyboard. */
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter') return;
+  const input = event.target.closest('#view-setup input[type="text"]');
+  if (!input) return;
+  event.preventDefault();
+
+  const fields = $$('#view-setup .step:not([hidden]) input[type="text"]');
+  const next = fields[fields.indexOf(input) + 1];
+  if (next) next.focus();
+  else input.blur();
+});
+
 $('#btn-create').onclick = createChampionship;
 
 $('#btn-back').onclick = () => {
@@ -1930,6 +1947,23 @@ $('#menu-champs').onclick = () => {
   $('#menu').hidden = true;
   openChampsSheet();
 };
+
+/* How much of the screen the on-screen keyboard is covering. The layout
+   viewport does not shrink when the keyboard opens on a phone, so anything
+   pinned to the bottom would sit underneath it; the visual viewport does know,
+   and every pinned action follows it. */
+function trackKeyboard() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const sync = () => {
+    const covered = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    document.documentElement.style.setProperty('--keyboard', `${Math.round(covered)}px`);
+  };
+  vv.addEventListener('resize', sync);
+  vv.addEventListener('scroll', sync);
+  sync();
+}
+trackKeyboard();
 
 // The nav bar keeps its hairline hidden until the content slides under it.
 const topbar = $('#topbar');

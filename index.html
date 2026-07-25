@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, interactive-widget=resizes-content">
 <title>Dad Championships</title>
 <meta name="description" content="Run a multi-sport championship across three generations. The app draws up the matches, you set the times, one table decides it.">
 <meta name="theme-color" content="#f3f1ec">
@@ -61,7 +61,9 @@
         <div class="count-field" id="players-count-field"></div>
         <p class="eyebrow">The field</p>
         <div id="player-names" class="name-list"></div>
-        <button class="primary" data-goto="2">Next: the sports</button>
+        <div class="step-actions">
+          <button class="primary" data-goto="2">Next: the sports</button>
+        </div>
       </div>
 
       <!-- Step 2: the sports -->
@@ -76,7 +78,7 @@
         <div class="preview" id="setup-preview"></div>
         <p class="error" id="setup-error" hidden></p>
 
-        <div class="row-btns">
+        <div class="row-btns step-actions">
           <button class="ghost" data-goto="1">Back</button>
           <button class="primary" id="btn-create">Create championship</button>
         </div>

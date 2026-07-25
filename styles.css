@@ -1274,6 +1274,10 @@ button { font-family: inherit; }
   display: flex;
   align-items: flex-end;
   justify-content: center;
+  /* A sheet sits on the bottom of the screen, and a sheet with a name field in
+     it puts its Save button there too — right where the keyboard opens. The
+     whole sheet lifts above the keyboard instead. */
+  padding-bottom: var(--keyboard, 0px);
   animation: veil .2s var(--ease);
   backdrop-filter: blur(2px);
 }
@@ -1290,7 +1294,8 @@ button { font-family: inherit; }
   padding: 4px 20px calc(env(safe-area-inset-bottom) + 22px);
   box-shadow: var(--lift-high);
   animation: rise .28s var(--ease);
-  max-height: 92dvh;
+  /* the keyboard takes its share of the screen before the sheet does */
+  max-height: calc(92dvh - var(--keyboard, 0px));
   overflow-y: auto;
   /* a pull straight down closes the sheet, so the pull must not scroll the
      page behind it while the sheet is following the finger */
@@ -1520,3 +1525,24 @@ button { font-family: inherit; }
   margin-top: -6px;
 }
 .empty.small { font-size: 14px; padding: 14px; margin: 0; }
+
+/* =========================== THE STEP'S ACTION =========================== */
+/* On a phone the setup screen is taller than the screen, and the keyboard
+   covers the bottom half of it while you are typing names. The step's own
+   button was landing behind that keyboard, which reads exactly like a button
+   that does nothing. It is pinned to the bottom of the screen instead, so it
+   is on top of the list rather than under the keyboard. */
+
+.step-actions {
+  position: sticky;
+  /* --keyboard is how much of the screen the on-screen keyboard is covering,
+     measured live from the visual viewport, so the action sits on top of the
+     keyboard rather than underneath it. */
+  bottom: var(--keyboard, 0px);
+  z-index: 4;
+  margin: 18px -20px 0;
+  padding: 12px 20px calc(env(safe-area-inset-bottom) + 12px);
+  background: linear-gradient(to bottom, rgba(243, 241, 236, 0) 0%, var(--paper) 34%);
+}
+.step-actions .primary,
+.step-actions .ghost { margin-top: 0; }

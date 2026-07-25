@@ -124,6 +124,12 @@ that, and `test-mobile.mjs` holds each of them:
   never fight.
 - **Nothing under 44px, nothing covering a button.** That is the size a thumb
   hits reliably, and the toast never swallows a tap meant for what is under it.
+- **Nothing behind the keyboard.** A phone keyboard does not shrink the page,
+  it covers the bottom half of it, so a button down there is invisible and
+  untappable — indistinguishable from a dead button. The app measures the
+  keyboard live from the visual viewport into `--keyboard`, and every pinned
+  action and every sheet sits on top of it. Enter on the keyboard also moves
+  from one name to the next, so the button is never the only way forward.
 - **Nothing fails in silence.** Sharing tries the phone's share sheet, then the
   clipboard, then shows the table as plain text to copy by hand — one of those
   always works, and every one of them says so.
@@ -169,6 +175,7 @@ python3 -m http.server 8000   # then open http://localhost:8000
 node test.mjs                 # engine tests
 node test-mobile.mjs          # mobile tests (needs playwright + webkit)
 node test-update.mjs          # the self-update path
+node test-keyboard.mjs        # nothing hides behind the on-screen keyboard
 node tools/gen-icons.mjs      # regenerate the app icons
 ```
 
@@ -183,4 +190,5 @@ Add it to your home screen and it opens full screen like a normal app.
 | `test.mjs` | Engine tests |
 | `test-mobile.mjs` | Mobile tests — taps, sheets, the library, sharing |
 | `test-update.mjs` | The self-update path |
+| `test-keyboard.mjs` | Nothing hides behind the on-screen keyboard |
 | `sw.js` | Offline cache |
