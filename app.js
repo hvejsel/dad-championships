@@ -23,8 +23,14 @@ import {
   createMatch,
   validateSides,
   pedroMatches,
-  pedroStatus,
-  pedroStandings,
+  standInsOf,
+  isStandIn,
+  entrantsOf,
+  addPlayer,
+  addStandIn,
+  removeEntrant,
+  matchesWith,
+  DEFAULT_STAND_IN,
   winningSide,
   standings,
   nextUnplayed,
@@ -35,7 +41,7 @@ import {
 
 /* Shown at the foot of the menu. When something is reported as still broken,
    this is the first thing to ask for: it says whether the fix ever arrived. */
-const APP_VERSION = 8;
+const APP_VERSION = 9;
 const APP_DATE = '25 Jul 2026';
 
 const LIBRARY_KEY = 'dadchamps.library.v1';
@@ -164,9 +170,10 @@ function playerOf(playerId) {
   return state.players.find((p) => p.id === playerId);
 }
 
+/** A name for anybody who can be in a match — a player or a stand-in. */
 function nameOf(playerId) {
-  const player = playerOf(playerId);
-  return player ? player.name : '?';
+  const entrant = entrantsOf(state).find((e) => e.id === playerId);
+  return entrant ? entrant.name : '?';
 }
 
 function teamHtml(players) {
@@ -462,7 +469,7 @@ function renderPreview() {
     `<strong>${draft.sportCount}</strong> ${draft.sportCount === 1 ? 'sport' : 'sports'}, ` +
     `<strong>${total}</strong> ${total === 1 ? 'match' : 'matches'} in all. ` +
     `One match each per sport${
-      anyPedro ? ', and whoever is left over gets a Pedro match so nobody sits out' : ''
+      anyPedro ? ', and the odd one out plays the last player so nobody sits out' : ''
     }. ` +
     `${coverage}<br>` +
     `You put the times on afterwards, as you book the courts.`;
@@ -510,8 +517,8 @@ function createChampionship() {
     name: (draft.name || '').trim() || DEFAULT_NAME,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    pedroCounts: true,
     players,
+    standIns: [{ id: 'x1', name: DEFAULT_STAND_IN }],
     sports,
     matches: [],
     nextMatchNo: 0,
@@ -717,7 +724,7 @@ function renderSportPage() {
 
     ${
       pedroHere.length
-        ? `<p class="sitting-out">${pedroHere.length === 1 ? 'One match here is' : `${pedroHere.length} matches here are`} a Pedro match — the extra match for whoever the round left over.</p>`
+        ? `<p class="sitting-out">${pedroHere.length === 1 ? 'One match here is' : `${pedroHere.length} matches here are`} a Pedro match — the extra match so the odd one out does not sit down. Open it to play against a stand-in instead.</p>`
         : ''
     }
     ${
@@ -795,7 +802,12 @@ function readMatchSheet() {
 
 function renderMatchSheet() {
   const body = $('#match-body');
-  const playerOptions = state.players.map((p) => ({ value: p.id, label: p.name }));
+  // Anders v Pedro: a stand-in is picked exactly like a player, marked so you
+  // can see the match is against somebody outside the championship.
+  const playerOptions = [
+    ...state.players.map((p) => ({ value: p.id, label: p.name })),
+    ...standInsOf(state).map((s) => ({ value: s.id, label: `${s.name} — stands in` })),
+  ];
   $('#match-error').hidden = true;
 
   if (isFreeForAll(editing.format)) {
@@ -877,8 +889,9 @@ function pedroPickerHtml() {
       value: editing.pedro ? 'yes' : 'no',
       extra: 'sel-wide',
     })}
-    <p class="hint">A Pedro match is the extra match for whoever the round left over. Its points
-      wait until everybody has played one.</p>`;
+    <p class="hint">A Pedro match is the extra match played when the numbers do not go up, so the
+      odd one out does not sit down. It counts like any other match. Put a stand-in on the other
+      side and it is played against somebody outside the championship.</p>`;
 }
 
 function saveMatchSheet() {
@@ -1114,89 +1127,6 @@ function addNewSport() {
 
 /* =========================== THE PEDRO BOARD =========================== */
 
-function renderPedro() {
-  const status = pedroStatus(state);
-  const rows = pedroStandings(state);
-  const upNext = nextUnplayed(state);
-
-  if (!status.total) {
-    $('#pedro-body').innerHTML =
-      '<p class="empty">No Pedro matches.<br>One appears by itself when a sport leaves somebody over — nobody sits out.</p>';
-    return;
-  }
-
-  const statusText = status.complete
-    ? status.counts
-      ? 'Everybody has played a Pedro match, so the Pedro points count in the table.'
-      : 'Everybody has played a Pedro match, but Pedro points are switched off, so they stay here.'
-    : `Pedro points are waiting for ${status.waiting
-        .map((p) => escapeHtml(p.name))
-        .join(', ')}. They count in the table once everybody has played a Pedro match.`;
-
-  $('#pedro-body').innerHTML = `
-    <div class="pedro-status ${status.live ? 'live' : ''}">
-      <span class="label">${status.live ? 'Pedro points count' : 'Pedro points on hold'}</span>
-      <p>${statusText}</p>
-      <p class="eyebrow">${status.playedCount} of ${state.players.length} have played one · ${
-        status.done
-      } of ${status.total} Pedro matches played</p>
-    </div>
-
-    <p class="eyebrow">Do Pedro points count in the table?</p>
-    ${selectHtml({
-      id: 'pedro-counts',
-      options: [
-        { value: 'yes', label: 'Yes — add them once everybody has played' },
-        { value: 'no', label: 'No — Pedro is just for the fun of it' },
-      ],
-      value: status.counts ? 'yes' : 'no',
-      extra: 'sel-wide',
-    })}
-
-    <p class="eyebrow">The Pedro board</p>
-    <div class="standings">
-      <div class="standings-head">
-        <span class="spacer"></span>
-        <span class="who-name">Player</span>
-        <span class="record">Played</span>
-        <span class="pts">Pts</span>
-      </div>
-      ${rows
-        .map(
-          (row, i) => `
-        <div class="standings-row${i === 0 && row.played ? ' top' : ''}">
-          ${medal(i + 1)}
-          <span class="who-name">
-            <span class="nm">${escapeHtml(row.name)}</span>
-            <span class="gen gen-line gen-${row.generation}">${escapeHtml(
-              generationLabel(row.generation)
-            )}</span>
-          </span>
-          <span class="record">${row.played}</span>
-          <span class="pts">${row.points}</span>
-        </div>`
-        )
-        .join('')}
-    </div>
-
-    <p class="eyebrow">The Pedro matches</p>
-    <div class="fixtures">
-      ${status.matches
-        .map(
-          (match) =>
-            `<div class="pedro-match">
-               <span class="pm-sport">${escapeHtml(sportName(match.sportId))}</span>
-               ${fixtureRow(match, upNext)}
-             </div>`
-        )
-        .join('')}
-    </div>`;
-
-  $$('#pedro-body .fixture').forEach((btn) => {
-    btn.onclick = () => openMatchSheet(btn.dataset.match);
-  });
-}
-
 /* ================================ TABLE ================================= */
 
 function pointsHeaderFor(filter) {
@@ -1224,7 +1154,6 @@ function renderTable() {
     btn.onclick = () => { tableFilter = btn.dataset.filter; render(); };
   });
 
-  const status = pedroStatus(state);
   const rows = standings(state, tableFilter === 'all' ? null : tableFilter);
   const anyPlayed = rows.some((r) => r.played > 0);
 
@@ -1234,9 +1163,7 @@ function renderTable() {
     return;
   }
 
-  const counted = state.matches.filter(
-    (m) => (tableFilter === 'all' || m.sportId === tableFilter) && (!m.pedro || status.live)
-  );
+  const counted = state.matches.filter((m) => tableFilter === 'all' || m.sportId === tableFilter);
   const playedHere = counted.filter((m) => m.done).length;
   const pointsHeader = pointsHeaderFor(tableFilter);
 
@@ -1251,16 +1178,6 @@ function renderTable() {
       : `${gap} ${gap === 1 ? 'point' : 'points'} clear of ${escapeHtml(runnerUp.name)}`;
 
   const finished = counted.length > 0 && playedHere === counted.length;
-  const pedroNote =
-    status.total && !status.live
-      ? `<p class="hint cover-line">${
-          status.counts
-            ? `Pedro points are not in yet — waiting for ${status.waiting
-                .map((p) => escapeHtml(p.name))
-                .join(', ')}.`
-            : 'Pedro points are switched off, so they are not in this table.'
-        }</p>`
-      : '';
 
   $('#table-body').innerHTML = `
     ${finished ? `<div class="champion-strip">${TROPHY_SVG}</div>` : ''}
@@ -1275,7 +1192,6 @@ function renderTable() {
     </div>
 
     <p class="eyebrow">After ${playedHere} of ${counted.length} ${counted.length === 1 ? 'match' : 'matches'}</p>
-    ${pedroNote}
     <div class="standings">
       <div class="standings-head">
         <span class="spacer"></span>
@@ -1360,6 +1276,79 @@ async function share() {
   $('#share-text').value = text;
   $('#share-sheet').hidden = false;
   $('#share-text').select();
+}
+
+/* ============================== THE FIELD =============================== */
+/* The field is not settled when the championship starts. Somebody turns up
+   late, somebody has to leave at four, and a name gets spelled wrong. All three
+   are edited here, and nothing already played is disturbed.                  */
+
+function rosterRow(entrant, standIn) {
+  const played = matchesWith(state, entrant.id).length;
+  return `
+    <div class="roster-row">
+      <input type="text" class="roster-name" data-rename="${escapeHtml(entrant.id)}"
+             value="${escapeHtml(entrant.name)}" placeholder="${standIn ? 'Stand-in' : 'Name'}"
+             autocapitalize="words" autocomplete="off" spellcheck="false">
+      ${
+        standIn
+          ? ''
+          : selectHtml({
+              attr: `data-gen-for="${escapeHtml(entrant.id)}" aria-label="Generation"`,
+              options: GENERATIONS.map((g) => ({ value: g.id, label: g.label })),
+              value: entrant.generation,
+              extra: `sel-gen gen-${entrant.generation}`,
+            })
+      }
+      <button class="roster-del" data-remove="${escapeHtml(entrant.id)}"
+              aria-label="Take ${escapeHtml(entrant.name)} out">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+          <path d="M4 6h12M8 6V4.5h4V6M6.5 6l.7 9.5h5.6L13.5 6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <span class="roster-count">${played} ${played === 1 ? 'match' : 'matches'}</span>
+    </div>`;
+}
+
+function renderPlayersSheet() {
+  $('#players-list').innerHTML = state.players.map((p) => rosterRow(p, false)).join('');
+  $('#standins-list').innerHTML = standInsOf(state).length
+    ? standInsOf(state).map((s) => rosterRow(s, true)).join('')
+    : '<p class="empty small">No stand-ins. Add one and you can play against him.</p>';
+
+  $$('#players-sheet [data-remove]').forEach((btn) => {
+    btn.onclick = () => removeFromField(btn.dataset.remove);
+  });
+}
+
+function openPlayersSheet() {
+  renderPlayersSheet();
+  $('#players-sheet').hidden = false;
+}
+
+async function removeFromField(id) {
+  const name = nameOf(id);
+  const standIn = isStandIn(state, id);
+  const inMatches = matchesWith(state, id).length;
+
+  if (!standIn && state.players.length <= 2) {
+    toast('A championship needs at least two players');
+    return;
+  }
+
+  const body = inMatches
+    ? `${name} is in ${inMatches} ${inMatches === 1 ? 'match' : 'matches'}. ${
+        inMatches === 1 ? 'That match goes' : 'Those matches go'
+      } too — a match with an empty side cannot be played. Every other result stays.`
+    : `${name} is in no matches, so nothing else changes.`;
+
+  if (!(await ask(`Take ${name} out?`, { body, yes: 'Take him out', danger: true }))) return;
+
+  removeEntrant(state, id);
+  saveState();
+  renderPlayersSheet();
+  render();
+  toast(`${name} taken out`);
 }
 
 /* ========================= EVERY CHAMPIONSHIP KEPT ====================== */
@@ -1484,7 +1473,7 @@ async function deleteChampionship(id) {
 
 function render() {
   const setupMode = !state;
-  const views = ['setup', 'sports', 'sport', 'table', 'pedro'];
+  const views = ['setup', 'sports', 'sport', 'table'];
 
   if (setupMode) view = 'setup';
   if (view === 'sport' && !sportOf(openSportId)) view = 'sports';
@@ -1505,11 +1494,6 @@ function render() {
     return;
   }
 
-  const hasPedro = pedroMatches(state.matches).length > 0;
-  $('#tab-pedro').hidden = !hasPedro;
-  $('#tabs').classList.toggle('two', !hasPedro);
-  if (view === 'pedro' && !hasPedro) view = 'sports';
-
   $$('#tabs button').forEach((b) =>
     b.classList.toggle('on', b.dataset.view === (view === 'sport' ? 'sports' : view))
   );
@@ -1517,7 +1501,6 @@ function render() {
   if (view === 'sports') renderSports();
   if (view === 'sport') renderSportPage();
   if (view === 'table') renderTable();
-  if (view === 'pedro') renderPedro();
 }
 
 /* =============================== WIRING ================================= */
@@ -1532,6 +1515,16 @@ document.addEventListener('change', (event) => {
     draft[field] = Number(select.value);
     saveDraft();
     renderSetup();
+    return;
+  }
+  if (select.dataset.genFor) {
+    const player = state.players.find((p) => p.id === select.dataset.genFor);
+    if (player) {
+      player.generation = select.value;
+      saveState();
+      renderPlayersSheet();
+      render();
+    }
     return;
   }
   if (select.dataset.genIndex !== undefined) {
@@ -1635,14 +1628,6 @@ document.addEventListener('change', (event) => {
     newSport.winPoints = Number(select.value);
     return;
   }
-
-  // ---- the Pedro board
-  if (select.id === 'pedro-counts') {
-    state.pedroCounts = select.value === 'yes';
-    saveState();
-    render();
-    toast(state.pedroCounts ? 'Pedro points count' : 'Pedro points are just for fun');
-  }
 });
 
 document.addEventListener('click', (event) => {
@@ -1685,6 +1670,18 @@ document.addEventListener('input', (event) => {
     return;
   }
   if (event.target.id === 'new-sport-custom') newSport.name = event.target.value;
+
+  // ---- the field: a name is saved as it is typed, so nothing is lost
+  const rename = event.target.closest('[data-rename]');
+  if (rename) {
+    const id = rename.dataset.rename;
+    const entrant = state.players.find((p) => p.id === id) || standInsOf(state).find((x) => x.id === id);
+    if (entrant) {
+      entrant.name = rename.value;
+      saveState();
+      renderBrand();
+    }
+  }
 });
 
 $('#btn-create').onclick = createChampionship;
@@ -1801,12 +1798,31 @@ dismissible('#name-sheet', () => { $('#name-sheet').hidden = true; });
 dismissible('#menu', () => { $('#menu').hidden = true; });
 dismissible('#champs-sheet', () => { $('#champs-sheet').hidden = true; });
 dismissible('#share-sheet', () => { $('#share-sheet').hidden = true; });
+dismissible('#players-sheet', () => { $('#players-sheet').hidden = true; render(); });
 dismissible('#confirm-sheet', () => { if (confirmResolve) confirmResolve(false); });
 
 $('#confirm-no').onclick = () => { if (confirmResolve) confirmResolve(false); };
 $('#confirm-yes').onclick = () => { if (confirmResolve) confirmResolve(true); };
 
 $('#champs-close').onclick = () => { $('#champs-sheet').hidden = true; };
+
+$('#menu-players').onclick = () => { $('#menu').hidden = true; openPlayersSheet(); };
+$('#players-done').onclick = () => { $('#players-sheet').hidden = true; render(); };
+$('#players-add').onclick = () => {
+  addPlayer(state, '', 'dad');
+  saveState();
+  renderPlayersSheet();
+  render();
+  const rows = $$('#players-list .roster-name');
+  if (rows.length) rows[rows.length - 1].focus();
+};
+$('#standin-add').onclick = () => {
+  addStandIn(state, standInsOf(state).length ? '' : DEFAULT_STAND_IN);
+  saveState();
+  renderPlayersSheet();
+  const rows = $$('#standins-list .roster-name');
+  if (rows.length) rows[rows.length - 1].focus();
+};
 $('#share-close').onclick = () => { $('#share-sheet').hidden = true; };
 $('#champs-new').onclick = startAnotherChampionship;
 $('#btn-setup-back').onclick = openChampsSheet;

@@ -31,7 +31,14 @@ import {
   validateSides,
   pedroMatches,
   pedroStatus,
-  pedroStandings,
+  standInsOf,
+  isStandIn,
+  entrantsOf,
+  entrantName,
+  addPlayer,
+  addStandIn,
+  removeEntrant,
+  matchesWith,
   playersInMatch,
   winningSide,
   matchPointsFor,
@@ -282,10 +289,9 @@ group('nobody sits a sport out — the odd one gets a Pedro match', () => {
     players: players.slice(0, 5),
     nextMatchNo: 0,
     matches: [],
-    pedroCounts: true,
     sports: [sport({ id: 's1', name: 'Badminton', order: 0, format: '1v1' })],
   };
-  buildAllProgrammes(s, rng());
+  buildAllProgrammes(s);
 
   check('nobody sits out', playersSittingOut(s, 's1').length === 0);
   check('five players give three matches', matchesForSport(s.matches, 's1').length === 3);
@@ -309,10 +315,9 @@ group('nobody sits a sport out — the odd one gets a Pedro match', () => {
     players: players.slice(0, 6),
     nextMatchNo: 0,
     matches: [],
-    pedroCounts: true,
     sports: [sport({ id: 's1', name: 'Padel', order: 0, format: '2v2' })],
   };
-  buildAllProgrammes(d, rng());
+  buildAllProgrammes(d);
   check('doubles with six leaves nobody out', playersSittingOut(d, 's1').length === 0);
   check('and adds one Pedro match of four', pedroMatches(d.matches).length === 1 &&
     playersInMatch(pedroMatches(d.matches)[0]).length === 4);
@@ -323,73 +328,126 @@ group('nobody sits a sport out — the odd one gets a Pedro match', () => {
     players: players.slice(0, 5),
     nextMatchNo: 0,
     matches: [],
-    pedroCounts: true,
     sports: [sport({ id: 's1', name: 'Mini golf', order: 0, format: 'ffa' })],
   };
-  buildAllProgrammes(f, rng());
+  buildAllProgrammes(f);
   check('all vs all needs no Pedro match', pedroMatches(f.matches).length === 0);
   check('and still nobody sits out', playersSittingOut(f, 's1').length === 0);
 });
 
-group('Pedro points wait until everybody has played a Pedro match', () => {
+group('Pedro is simply the last player, and his points count like any other', () => {
   const s = {
     players: players.slice(0, 5),
     nextMatchNo: 0,
     matches: [],
-    pedroCounts: true,
-    sports: [
-      sport({ id: 's1', name: 'Badminton', order: 0, format: '1v1', winPoints: 3 }),
-      sport({ id: 's2', name: 'Darts', order: 1, format: '1v1', winPoints: 3 }),
-      sport({ id: 's3', name: 'Bowling', order: 2, format: '1v1', winPoints: 3 }),
-      sport({ id: 's4', name: 'Boules', order: 3, format: '1v1', winPoints: 3 }),
-      sport({ id: 's5', name: 'Pool', order: 4, format: '1v1', winPoints: 3 }),
-    ],
+    sports: [sport({ id: 's1', name: 'Badminton', order: 0, format: '1v1', winPoints: 3 })],
   };
-  buildAllProgrammes(s, rng());
-  check('one Pedro match per sport', pedroMatches(s.matches).length === 5);
+  buildAllProgrammes(s);
 
-  // play everything
+  const pedro = pedroMatches(s.matches)[0];
+  const last = s.players[s.players.length - 1].id;
+  const leftOver = matchesForSport(s.matches, 's1')
+    .filter((m) => !m.pedro)
+    .flatMap(playersInMatch);
+  const odd = s.players.map((p) => p.id).find((id) => !leftOver.includes(id));
+
+  check('the round leaves exactly one player over', Boolean(odd));
+  check('the odd one out is in the Pedro match', playersInMatch(pedro).includes(odd));
+  check(
+    'and Pedro is the last player on the list',
+    playersInMatch(pedro).includes(last) || odd === last,
+    JSON.stringify(playersInMatch(pedro))
+  );
+
+  // drawn twice, the same Pedro turns up — no dice involved any more
+  const again = { ...s, matches: [], nextMatchNo: 0 };
+  buildAllProgrammes(again);
+  check(
+    'the draw is the same every time',
+    JSON.stringify(again.matches.map((m) => m.sides)) === JSON.stringify(s.matches.map((m) => m.sides))
+  );
+
   for (const match of s.matches) {
     match.sides[0].score = 11;
     match.sides[1].score = 6;
     match.done = true;
   }
+  const table = standings(s);
+  const totalPlayed = table.reduce((sum, r) => sum + r.played, 0);
+  check('every match counts, the Pedro match included', totalPlayed === 6, `got ${totalPlayed}`);
+  check('nothing is held back waiting for anyone', pedroStatus(s).done === 1);
+});
 
-  const status = pedroStatus(s);
-  check('every player got a Pedro match', status.waiting.length === 0, JSON.stringify(status.waiting.map((p) => p.name)));
-  check('so the Pedro points are live', status.live === true);
-  const withPedro = standings(s);
-  const withoutPedro = standings(s, null, { pedro: 'exclude' });
-  check('the table counts them once they are live',
-    withPedro.reduce((sum, r) => sum + r.points, 0) > withoutPedro.reduce((sum, r) => sum + r.points, 0));
+group('a stand-in fills the spot but never the table', () => {
+  const s = {
+    players: players.slice(0, 4),
+    standIns: [{ id: 'x1', name: 'Pedro' }],
+    nextMatchNo: 0,
+    matches: [],
+    sports: [sport({ id: 's1', name: 'Padel', order: 0, format: '1v1', winPoints: 3 })],
+  };
+  buildAllProgrammes(s);
 
-  // one Pedro match not played yet: the points are held back again
-  const held = JSON.parse(JSON.stringify(s));
-  const pedro = pedroMatches(held.matches);
-  const target = playersInMatch(pedro[0])[0];
-  for (const m of pedroMatches(held.matches)) {
-    if (playersInMatch(m).includes(target)) { m.done = false; m.sides.forEach((x) => { x.score = null; }); }
-  }
-  const heldStatus = pedroStatus(held);
-  check('an unplayed Pedro match holds the points back', heldStatus.live === false);
-  check('and the board names who is waiting', heldStatus.waiting.length > 0);
-  check('the table then matches the one without Pedro',
-    JSON.stringify(standings(held).map((r) => r.points)) ===
-      JSON.stringify(standings(held, null, { pedro: 'exclude' }).map((r) => r.points)));
+  check('the stand-ins are there', standInsOf(s).length === 1);
+  check('a stand-in is known as one', isStandIn(s, 'x1') === true);
+  check('a player is not', isStandIn(s, 'p1') === false);
+  check('you can pick a player or a stand-in', entrantsOf(s).length === 5);
+  check('and a stand-in has a name to show', entrantName(s, 'x1') === 'Pedro');
 
-  // and you can switch them off entirely
-  const off = { ...s, pedroCounts: false };
-  check('Pedro points can be turned off', pedroStatus(off).live === false);
-  check('the table then leaves them out',
-    JSON.stringify(standings(off).map((r) => r.points)) ===
-      JSON.stringify(standings(off, null, { pedro: 'exclude' }).map((r) => r.points)));
+  // Anders v Pedro: a match against somebody who is not in the championship
+  const match = s.matches[0];
+  match.sides = [{ players: ['p1'], score: 11 }, { players: ['x1'], score: 4 }];
+  match.done = true;
 
-  // the Pedro board counts the Pedro matches on their own
-  const board = pedroStandings(s);
-  check('the Pedro board only counts Pedro matches',
-    board.reduce((sum, r) => sum + r.played, 0) === 10, `got ${board.reduce((sum, r) => sum + r.played, 0)}`);
-  check('and it works even while the points are held back',
-    pedroStandings(held).some((r) => r.played > 0));
+  const table = standings(s);
+  check('the stand-in gets no row in the table', table.every((r) => r.playerId !== 'x1'));
+  check('the player still gets his points', table.find((r) => r.playerId === 'p1').points === 3);
+  check('and the win is recorded', table.find((r) => r.playerId === 'p1').won === 1);
+
+  const added = addStandIn(s, 'Anders');
+  check('another stand-in can be added', standInsOf(s).length === 2 && added.name === 'Anders');
+  check('and it gets its own id', added.id !== 'x1');
+});
+
+group('the field can be edited after the championship has started', () => {
+  const s = {
+    players: players.slice(0, 4),
+    standIns: [{ id: 'x1', name: 'Pedro' }],
+    nextMatchNo: 0,
+    matches: [],
+    sports: [sport({ id: 's1', name: 'Padel', order: 0, format: '1v1', winPoints: 3 })],
+  };
+  buildAllProgrammes(s);
+  const before = s.matches.length;
+
+  // somebody turns up late
+  const late = addPlayer(s, 'Cousin Bo', 'kid');
+  check('a player can be added later', s.players.length === 5);
+  check('with his own id', late.id === 'p5');
+  check('and his own generation', late.generation === 'kid');
+  check('the matches already drawn are untouched', s.matches.length === before);
+  check('and he is flagged as having no match yet', playersSittingOut(s, 's1').some((p) => p.id === 'p5'));
+
+  // a name was spelled wrong — renaming is a plain edit and costs nothing
+  s.players[0].name = 'Jesper';
+  check('renaming keeps every match', s.matches.length === before);
+  check('and the table shows the new name', standings(s).some((r) => r.name === 'Jesper'));
+
+  // somebody has to leave
+  const doomed = 'p2';
+  const hisMatches = matchesWith(s, doomed).length;
+  check('the app can say what taking him out costs', hisMatches > 0);
+  const removed = removeEntrant(s, doomed);
+  check('removing him reports how many matches went', removed === hisMatches);
+  check('he is out of the field', s.players.every((p) => p.id !== doomed));
+  check('his matches are gone', matchesWith(s, doomed).length === 0);
+  check('no match is left with an empty side',
+    s.matches.every((m) => m.sides.every((side) => side.players.length && side.players.every(Boolean))));
+  check('and everybody else keeps theirs', s.matches.length === before - hisMatches);
+
+  // a stand-in can be taken out the same way
+  removeEntrant(s, 'x1');
+  check('a stand-in can be removed too', standInsOf(s).length === 0);
 });
 
 group('rebuilding one sport leaves the others alone', () => {
@@ -520,8 +578,11 @@ group('a saved championship survives an update', () => {
   check('a win gets a value it did not have before', migrated.sports[0].winPoints === 3);
   check('the championship gets a name for its crest', migrated.name === 'Dad Championships');
   check('a name that was already chosen is kept', migrateState({ ...old, name: 'Hvejsel Cup' }).name === 'Hvejsel Cup');
-  check('Pedro points count unless they were switched off', migrated.pedroCounts === true);
-  check('and switching them off survives', migrateState({ ...old, pedroCounts: false }).pedroCounts === false);
+  check('every championship gets a Pedro to stand in', migrated.standIns.length === 1);
+  check('and he is called Pedro', migrated.standIns[0].name === 'Pedro');
+  check('stand-ins already chosen are kept',
+    migrateState({ ...old, standIns: [{ id: 'x1', name: 'Anders' }] }).standIns[0].name === 'Anders');
+  check('the old Pedro-points switch is gone', migrated.pedroCounts === undefined);
   check('old matches are not Pedro matches', migrated.matches[0].pedro === false);
   check('the played result is kept', migrated.matches[0].done === true);
   check('the two teams become two sides',
@@ -569,7 +630,7 @@ group('a score belongs to a team in doubles and to a person otherwise', () => {
 
 group('every element of a match can be edited', () => {
   const s = baseState({ sports: [sport({ id: 's1', name: 'Darts', order: 0, format: '1v1' })] });
-  buildAllProgrammes(s, rng());
+  buildAllProgrammes(s);
 
   check('a singles match needs one player on each side', validateSides([['p1'], []], '1v1') !== null);
   check('two on a side is not singles', validateSides([['p1', 'p2'], ['p3']], '1v1') !== null);

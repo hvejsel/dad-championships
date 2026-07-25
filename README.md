@@ -23,15 +23,36 @@ Live: https://hvejsel.github.io/dad-championships/
 
 One round cannot always hold everybody: five players in singles leaves one over,
 six in doubles leaves two. Instead of a bench, whoever is left over plays one
-extra match — a **Pedro match** — filled up with players drawn at random from
-those already playing, favouring whoever has had the fewest Pedro matches.
+extra match — a **Pedro match**.
 
-Pedro has its own board, its own points and its own rule: the points are held
-back until every player has actually played a Pedro match, and they only count
-in the main table if you say they should. The board names whoever is still
-waiting, and the table says so too.
+Pedro is simply **the last player on the list**. The same name every time, no
+dice, so you can see at a glance who is going to play twice and reorder the
+field if you would rather it were somebody else. A Pedro match counts exactly
+like any other match; nothing is held back and there is no separate board.
+
+**A Pedro does not have to be one of the players.** Add a stand-in under *Who is
+playing* — Pedro, a neighbour, whoever turned up — and pick them on either side
+of any match, so "Anders v Pedro" is a normal thing to set up. A stand-in fills
+the spot so nobody sits out, plays for nothing, and never appears in the table.
 
 Any match can be marked as a Pedro match by hand, in the match editor.
+
+## Who is playing — editable all day
+
+The field is not settled when the championship starts. Somebody turns up late,
+somebody has to leave at four, and a name gets spelled wrong. *Who is playing*
+in the menu handles all three:
+
+- **Rename** anyone by typing over the name; it saves as you type and every
+  result is kept.
+- **Change a generation** with the tag beside the name.
+- **Add a player** mid-championship. They start with no matches, and each sport
+  says who still has none so you can add one.
+- **Take somebody out.** Their matches go with them — a match with an empty side
+  cannot be played or scored — and the app says how many that is before you
+  agree. Every other result is untouched.
+
+Stand-ins are added, renamed and removed in the same place.
 
 ## Game types
 
@@ -106,6 +127,8 @@ that, and `test-mobile.mjs` holds each of them:
 - **Nothing fails in silence.** Sharing tries the phone's share sheet, then the
   clipboard, then shows the table as plain text to copy by hand — one of those
   always works, and every one of them says so.
+- **Every tap target is a control you can edit in place.** The field is edited
+  by typing over a name, not by opening a form to fill in.
 
 ## Keeping it current
 

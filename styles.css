@@ -667,8 +667,9 @@ button { font-family: inherit; }
   letter-spacing: 0.4px;
   text-transform: uppercase;
   color: inherit;
-  min-height: 30px;
-  padding: 0 22px 0 8px;
+  /* the tag is small, but a thumb still needs 44px to land on it */
+  min-height: 44px;
+  padding: 0 22px 0 10px;
   border-radius: 6px;
 }
 .sel-gen::after {
@@ -1233,12 +1234,11 @@ button { font-family: inherit; }
 
 /* ================================== TABS ================================= */
 
-.tabs.two { grid-template-columns: repeat(2, 1fr); }
 .tabs {
   position: sticky;
   bottom: 0;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   padding: 6px 12px calc(env(safe-area-inset-bottom) + 6px);
   background: rgba(243, 241, 236, 0.88);
   backdrop-filter: saturate(180%) blur(20px);
@@ -1470,3 +1470,53 @@ button { font-family: inherit; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* ============================== THE FIELD ================================ */
+/* One row per person: the name to edit, the generation, and the way out. */
+
+.roster {
+  background: var(--card);
+  border-radius: var(--r-card);
+  box-shadow: var(--lift);
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.roster-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 6px 8px 14px;
+}
+.roster-row + .roster-row { border-top: 1px solid var(--chalk-soft); }
+.roster-name {
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+  min-height: 44px;
+  min-width: 0;
+  padding: 0;
+}
+.roster-name:focus { outline: none; }
+.roster-del {
+  border: 0;
+  background: none;
+  color: var(--ink-faint);
+  width: 44px;
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.roster-del svg { width: 20px; height: 20px; }
+.roster-del:active { color: var(--clay); background: var(--card-sunk); }
+.roster-count {
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  margin-top: -6px;
+}
+.empty.small { font-size: 14px; padding: 14px; margin: 0; }

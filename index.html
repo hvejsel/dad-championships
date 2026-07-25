@@ -100,11 +100,6 @@
       <button class="ghost wide" id="btn-share">Share the table</button>
     </section>
 
-    <!-- ========================= THE PEDRO BOARD ===================== -->
-    <section id="view-pedro" class="view" hidden>
-      <div id="pedro-body"></div>
-    </section>
-
   </main>
 
   <nav id="tabs" class="tabs" hidden>
@@ -121,15 +116,6 @@
         <path d="M15 20v-8h6v8" stroke-linejoin="round"/><path d="M2 20h20" stroke-linecap="round"/>
       </svg>
       Table
-    </button>
-    <button data-view="pedro" id="tab-pedro" hidden>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-        <rect x="3.5" y="3.5" width="17" height="17" rx="4"/>
-        <circle cx="8.5" cy="8.5" r="1.4" fill="currentColor" stroke="none"/>
-        <circle cx="15.5" cy="15.5" r="1.4" fill="currentColor" stroke="none"/>
-        <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/>
-      </svg>
-      Pedro
     </button>
   </nav>
 
@@ -194,6 +180,26 @@
   </div>
 </div>
 
+<!-- the field: who is playing, and who stands in when the numbers do not go up -->
+<div id="players-sheet" class="sheet" hidden>
+  <div class="sheet-card">
+    <div class="grabber"></div>
+    <h2>Who is playing</h2>
+    <p class="hint">Change a name, change a generation, add somebody who turned up late, or take
+      somebody out. Everything already played is kept.</p>
+    <div id="players-list" class="roster"></div>
+    <button class="add-match" id="players-add"><span aria-hidden="true">+</span> Add a player</button>
+
+    <p class="eyebrow">Stand-ins</p>
+    <p class="hint">A stand-in fills a spot so nobody sits out — Pedro, a neighbour, whoever turns
+      up. They can be picked for a match, they play for nothing, and they never enter the table.</p>
+    <div id="standins-list" class="roster"></div>
+    <button class="add-match" id="standin-add"><span aria-hidden="true">+</span> Add a stand-in</button>
+
+    <button class="primary wide" id="players-done">Done</button>
+  </div>
+</div>
+
 <!-- the championship's own name, which the crest is drawn from -->
 <div id="name-sheet" class="sheet" hidden>
   <div class="sheet-card">
@@ -230,6 +236,7 @@
     <div class="grabber"></div>
     <h2>Championship</h2>
     <button class="ghost wide" id="menu-champs">Your championships</button>
+    <button class="ghost wide" id="menu-players">Who is playing</button>
     <button class="ghost wide" id="menu-rename">Name and crest</button>
     <button class="ghost wide" id="menu-share">Share the table</button>
     <button class="ghost wide" id="menu-reset">Clear all results</button>

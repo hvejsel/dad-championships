@@ -204,6 +204,87 @@ const run = async () => {
   check('and it holds the real table', shown.includes('matches played'), JSON.stringify(shown.slice(0, 60)));
   await tap('#share-close');
 
+
+  console.log('\n--- 7. the field can be edited after the championship has started ---');
+  await tap('#btn-menu');
+  await tap('#menu-players');
+  check('the field opens from the menu', !(await hidden('#players-sheet')));
+  const rows = () => page.locator('#players-list .roster-row').count();
+  check('every player has a row', (await rows()) === 4);
+
+  // rename
+  await page.locator('#players-list .roster-name').first().fill('Bedstefar');
+  await page.waitForTimeout(300);
+  const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('dadchamps.library.v1')));
+  let lib2 = await stored();
+  const open2 = lib2.championships.find((c) => c.id === lib2.currentId);
+  check('a name can be changed', open2.players[0].name === 'Bedstefar', open2.players[0].name);
+
+  // change a generation
+  await page.selectOption('#players-list select', 'granddad');
+  await page.waitForTimeout(300);
+  lib2 = await stored();
+  check('a generation can be changed',
+    lib2.championships.find((c) => c.id === lib2.currentId).players[0].generation === 'granddad');
+
+  // somebody turns up late
+  await tap('#players-add');
+  check('a player can be added later', (await rows()) === 5);
+  await page.locator('#players-list .roster-name').nth(4).fill('Cousin Bo');
+  await page.waitForTimeout(300);
+  lib2 = await stored();
+  check('and he is saved',
+    lib2.championships.find((c) => c.id === lib2.currentId).players.length === 5);
+
+  // somebody has to leave
+  const libBefore = await stored();
+  const before2 = libBefore.championships.find((c) => c.id === libBefore.currentId).matches.length;
+  await page.locator('#players-list .roster-del').nth(1).click();
+  await page.waitForTimeout(300);
+  check('taking somebody out asks first, in the app', !(await hidden('#confirm-sheet')));
+  await tap('#confirm-yes');
+  await page.waitForTimeout(400);
+  lib2 = await stored();
+  const open3 = lib2.championships.find((c) => c.id === lib2.currentId);
+  check('he is out of the field', open3.players.length === 4);
+  check('his matches went with him', open3.matches.length < before2);
+  check('and no match is left with an empty side',
+    open3.matches.every((m) => m.sides.every((sd) => sd.players.length && sd.players.every(Boolean))));
+
+  console.log('\n--- 8. Pedro: a stand-in you can play against ---');
+  const standIns = () => page.locator('#standins-list .roster-row').count();
+  check('every championship starts with a Pedro', (await standIns()) === 1);
+  const pedroName = await page.locator('#standins-list .roster-name').first().inputValue();
+  check('and he is called Pedro', pedroName === 'Pedro', pedroName);
+
+  await tap('#standin-add');
+  await page.locator('#standins-list .roster-name').nth(1).fill('Anders');
+  await page.waitForTimeout(300);
+  check('another stand-in can be added', (await standIns()) === 2);
+  await tap('#players-done');
+
+  // Anders is pickable as an opponent
+  await tap('#tabs button[data-view="sports"]');
+  await tap('.sport-link');
+  await tap('.fixture');
+  const options = await page.locator('#match-body select').first().locator('option').allTextContents();
+  check('a stand-in can be picked as an opponent', options.some((o) => o.startsWith('Anders')), JSON.stringify(options));
+  check('and is marked as standing in', options.some((o) => o === 'Anders — stands in'));
+
+  // play a player against the stand-in
+  const sideSelects = page.locator('#match-body select');
+  await sideSelects.nth(1).selectOption({ label: 'Anders — stands in' });
+  await page.waitForTimeout(300);
+  await page.locator('#match-body input[type=number]').nth(0).fill('11');
+  await page.locator('#match-body input[type=number]').nth(1).fill('4');
+  await tap('#match-save');
+  await page.waitForTimeout(400);
+
+  await tap('#tabs button[data-view="table"]');
+  const tableText = await page.textContent('#table-body');
+  check('the stand-in never enters the table', !tableText.includes('Anders'), tableText.slice(0, 120));
+  check('but the match counted for the player', /point|Pts/i.test(tableText));
+
   console.log(`\n${pass} passed, ${fail} failed`);
   await browser.close();
   if (fail) process.exit(1);
