@@ -5,17 +5,26 @@ import {
   formatLabel,
   SCORINGS,
   scoringSummary,
+  championshipInitials,
   WIN_POINT_CHOICES,
   DEFAULT_WIN_POINTS,
+  DEFAULT_NAME,
   isFreeForAll,
+  teamSize,
   orderedSports,
   matchesForSport,
   matchesPerSport,
+  pedroNeeded,
   sportsToCoverEveryone,
   pairCoverage,
   playersSittingOut,
   buildProgramme,
   buildAllProgrammes,
+  createMatch,
+  validateSides,
+  pedroMatches,
+  pedroStatus,
+  pedroStandings,
   winningSide,
   standings,
   nextUnplayed,
@@ -85,6 +94,7 @@ let state = loadChampionship();
 
 let draft = load(DRAFT_KEY, null) || {
   step: 1,
+  name: '',
   playerCount: 4,
   playerNames: ['', '', '', ''],
   playerGenerations: ['dad', 'dad', 'granddad', 'kid'],
@@ -96,10 +106,11 @@ let draft = load(DRAFT_KEY, null) || {
   sportWinPoints: [3, 3, 3],
 };
 
-let view = 'matches';
+let view = 'sports';
+let openSportId = null;
 let tableFilter = 'all';
-let editingMatchId = null;
 let editingSportId = null;
+let editing = null; // the match being edited
 let newSport = null; // the sport being added mid-championship
 
 const saveState = () => save(STATE_KEY, state);
@@ -131,6 +142,10 @@ function sportOf(sportId) {
 function sportName(sportId) {
   const sport = sportOf(sportId);
   return sport ? sport.name : '';
+}
+
+function matchOf(matchId) {
+  return state.matches.find((m) => m.id === matchId);
 }
 
 function escapeHtml(value) {
@@ -174,6 +189,7 @@ const SPORT_NAME_OPTIONS = [
   ...SPORT_SUGGESTIONS.map((s) => ({ value: s, label: s })),
   { value: OTHER, label: 'Other sport…' },
 ];
+const YES_NO = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }];
 
 /** Brass, silver and bronze discs for the podium; a plain numeral below it. */
 function medal(rank) {
@@ -198,6 +214,37 @@ const TROPHY_SVG = `
           d="M158 122 h196 v54 c0 64-32 118-78 130 v46 h24 v18 h30 v30 h-148 v-30 h30 v-18 h24 v-46 c-46-12-78-66-78-130z"/>
   </svg>`;
 
+/**
+ * The crest: a court-blue shield with a brass rule and the championship's own
+ * monogram, drawn from its name. Every instance needs its own gradient ids.
+ */
+function crestSvg(name, size = 44, key = 'a') {
+  const initials = championshipInitials(name);
+  const fontSize = initials.length >= 3 ? 13 : 16.5;
+  return `
+  <svg class="crest" width="${size}" height="${size}" viewBox="0 0 48 52" aria-hidden="true">
+    <defs>
+      <linearGradient id="court-${key}" x1="0" y1="0" x2="0.4" y2="1">
+        <stop offset="0" stop-color="#2f80e8"/><stop offset="1" stop-color="#0e458f"/>
+      </linearGradient>
+      <linearGradient id="brass-${key}" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#e2bd6b"/><stop offset="0.5" stop-color="#a97c22"/>
+        <stop offset="1" stop-color="#e2bd6b"/>
+      </linearGradient>
+    </defs>
+    <path d="M24 1.5 L45 7.5 v18.5 C45 38 36 46 24 50.5 12 46 3 38 3 26 V7.5 Z"
+          fill="url(#court-${key})"/>
+    <path d="M24 5 L41.5 10 v16 C41.5 36 34 43 24 47 14 43 6.5 36 6.5 26 V10 Z"
+          fill="none" stroke="url(#brass-${key})" stroke-width="1.1" opacity="0.95"/>
+    <text x="24" y="27" text-anchor="middle" font-size="${fontSize}" font-weight="700"
+          letter-spacing="0.6" fill="#fff"
+          font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif"
+          >${escapeHtml(initials)}</text>
+    <path d="M15 33 h18" stroke="url(#brass-${key})" stroke-width="1.4" stroke-linecap="round"/>
+    <circle cx="24" cy="38.5" r="2" fill="url(#brass-${key})"/>
+  </svg>`;
+}
+
 let toastTimer = null;
 function toast(message) {
   const el = $('#toast');
@@ -216,6 +263,10 @@ function renderSetup() {
     li.classList.toggle('done', step < draft.step);
   });
   $$('.step').forEach((el) => { el.hidden = Number(el.dataset.step) !== draft.step; });
+
+  const nameInput = $('#champ-name-input');
+  if (nameInput.value !== draft.name) nameInput.value = draft.name || '';
+  $('#crest-preview').innerHTML = crestSvg(draft.name || DEFAULT_NAME, 52, 'setup');
 
   $('#players-count-field').innerHTML = selectHtml({
     attr: 'data-count="players"',
@@ -327,13 +378,11 @@ function renderPreview() {
     .filter((g) => counts[g.id] > 0)
     .map((g) => `${counts[g.id]} ${counts[g.id] === 1 ? g.label.toLowerCase() : `${g.label.toLowerCase()}s`}`);
 
-  const total = draft.sportFormats
-    .slice(0, draft.sportCount)
-    .reduce((sum, format) => sum + matchesPerSport(draft.playerCount, format || '1v1'), 0);
+  const formats = draft.sportFormats.slice(0, draft.sportCount);
+  const total = formats.reduce((sum, format) => sum + matchesPerSport(draft.playerCount, format || '1v1'), 0);
+  const anyPedro = formats.some((f) => pedroNeeded(draft.playerCount, f || '1v1'));
 
-  // How many sports it takes before everyone has met everyone, counted on the
-  // game type most of the sports use.
-  const heaviest = draft.sportFormats.slice(0, draft.sportCount).includes('1v1') ? '1v1' : draft.sportFormats[0] || '1v1';
+  const heaviest = formats.includes('1v1') ? '1v1' : formats[0] || '1v1';
   const needed = sportsToCoverEveryone(draft.playerCount, heaviest);
   const coverage =
     draft.sportCount >= needed
@@ -344,7 +393,10 @@ function renderPreview() {
     `<strong>${parts.join(', ')}</strong> across ` +
     `<strong>${draft.sportCount}</strong> ${draft.sportCount === 1 ? 'sport' : 'sports'}, ` +
     `<strong>${total}</strong> ${total === 1 ? 'match' : 'matches'} in all. ` +
-    `One match each per sport. ${coverage}<br>` +
+    `One match each per sport${
+      anyPedro ? ', and whoever is left over gets a Pedro match so nobody sits out' : ''
+    }. ` +
+    `${coverage}<br>` +
     `You put the times on afterwards, as you book the courts.`;
 
   const error = validateDraft();
@@ -381,12 +433,14 @@ function createChampionship() {
     format: draft.sportFormats[i] || '1v1',
     scoring: draft.sportScorings[i] || 'match',
     winPoints: draft.sportWinPoints[i] || DEFAULT_WIN_POINTS,
-    time: null, // set later, on the match list, as the courts are booked
+    time: null, // set later, on the sport's own page, as the courts are booked
   }));
 
   state = {
     version: STATE_VERSION,
+    name: (draft.name || '').trim() || DEFAULT_NAME,
     createdAt: new Date().toISOString(),
+    pedroCounts: true,
     players,
     sports,
     matches: [],
@@ -395,44 +449,43 @@ function createChampionship() {
   buildAllProgrammes(state);
 
   saveState();
-  view = 'matches';
+  view = 'sports';
+  openSportId = null;
   tableFilter = 'all';
   render();
 }
 
-/* =============================== MATCHES =============================== */
+/* ============================= THE BRAND =============================== */
 
-function fixtureRow(match, upNext) {
-  const isNow = upNext && match.id === upNext.id;
-  const classes = `fixture ${match.done ? 'played' : ''} ${isNow ? 'now' : ''}`;
-
-  if (match.sides.length > 2) {
-    const winner = winningSide(match);
-    const result = match.done
-      ? winner
-        ? `${escapeHtml(nameOf(winner.players[0]))} ${winner.score}`
-        : 'Tied'
-      : isNow
-        ? '<em>Up next</em>'
-        : '—';
-    return `
-      <button class="${classes} ffa" data-match="${match.id}">
-        <span class="who">${match.sides
-          .map((side) => escapeHtml(nameOf(side.players[0])))
-          .join(' <span class="and">·</span> ')}</span>
-        <span class="res">${result}</span>
-      </button>`;
+function renderBrand() {
+  if (!state) {
+    $('#brand').innerHTML = `
+      <div class="brand-text">
+        <h1>Dad Championships</h1>
+        <p class="sub">Set up a new championship</p>
+      </div>`;
+    return;
   }
 
-  const [a, b] = match.sides;
-  return `
-    <button class="${classes}" data-match="${match.id}">
-      <span class="who">${teamHtml(a.players)}<br>${teamHtml(b.players)}</span>
-      <span class="res">${
-        match.done ? `${a.score} – ${b.score}` : isNow ? '<em>Up next</em>' : '—'
-      }</span>
-    </button>`;
+  const counts = { dad: 0, granddad: 0, kid: 0 };
+  for (const p of state.players) counts[p.generation] = (counts[p.generation] || 0) + 1;
+  const who = GENERATIONS.filter((g) => counts[g.id] > 0)
+    .map((g) => `${counts[g.id]} ${g.label.toLowerCase()}${counts[g.id] === 1 ? '' : 's'}`)
+    .join(' · ');
+
+  const sub = view === 'sport' && openSportId ? sportName(openSportId) : who;
+  const long = state.name.length > 17;
+  const veryLong = state.name.length > 26;
+
+  $('#brand').innerHTML = `
+    ${crestSvg(state.name, 42, 'top')}
+    <div class="brand-text">
+      <h1 class="${veryLong ? 'tiny' : long ? 'small' : ''}">${escapeHtml(state.name)}</h1>
+      <p class="sub">${escapeHtml(sub)}</p>
+    </div>`;
 }
+
+/* =========================== THE SPORTS LIST =========================== */
 
 /** What another sport would buy you: the pairings nobody has played yet. */
 function coverageLine() {
@@ -448,8 +501,8 @@ function coverageLine() {
   return `<p class="hint cover-line">Still to meet: ${shown}${rest}. Add a sport and the app picks those first.</p>`;
 }
 
-function renderMatches() {
-  const body = $('#matches-body');
+function renderSports() {
+  const body = $('#sports-body');
   const { done, total } = progress(state.matches);
   const upNext = nextUnplayed(state);
   const timed = state.sports.filter((s) => s.time).length;
@@ -459,85 +512,342 @@ function renderMatches() {
        <p class="eyebrow">${done} of ${total} ${total === 1 ? 'match' : 'matches'} played</p>`
     : '';
 
-  const banner =
-    upNext && sportOf(upNext.sportId).time
-      ? `<div class="up-next">
-           <span class="label">Next up — ${escapeHtml(sportOf(upNext.sportId).time)}</span>
-           <strong>${escapeHtml(sportName(upNext.sportId))}: ${
-             upNext.sides.length > 2
-               ? 'everybody'
-               : `${escapeHtml(teamText(upNext.sides[0].players))} vs ${escapeHtml(
-                   teamText(upNext.sides[1].players)
-                 )}`
-           }</strong>
-         </div>`
-      : '';
+  const banner = upNext
+    ? `<div class="up-next">
+         <span class="label">Next up${
+           sportOf(upNext.sportId).time ? ` — ${escapeHtml(sportOf(upNext.sportId).time)}` : ''
+         }</span>
+         <strong>${escapeHtml(sportName(upNext.sportId))}: ${
+           upNext.sides.length > 2
+             ? 'everybody'
+             : `${escapeHtml(teamText(upNext.sides[0].players))} vs ${escapeHtml(
+                 teamText(upNext.sides[1].players)
+               )}`
+         }</strong>
+       </div>`
+    : '';
 
-  // Times are put on as the courts are booked, so the list says what is missing.
   const timeHint =
     timed < state.sports.length
       ? `<p class="hint time-hint">${
-          timed === 0
-            ? 'Tap a sport to set the time when you have booked it.'
-            : `${state.sports.length - timed} ${
-                state.sports.length - timed === 1 ? 'sport has' : 'sports have'
-              } no time yet — tap to set it.`
-        } The list sorts itself by time.</p>`
+          state.sports.length - timed === 1 ? '1 sport has' : `${state.sports.length - timed} sports have`
+        } no time yet — open the sport to set it. The list sorts itself by time.</p>`
       : '';
 
-  const blocks = orderedSports(state.sports)
+  const rows = orderedSports(state.sports)
     .map((sport) => {
       const matches = matchesForSport(state.matches, sport.id);
       const playedHere = matches.filter((m) => m.done).length;
-      const sittingOut = playersSittingOut(state, sport.id);
-
+      const pedroHere = matches.filter((m) => m.pedro).length;
       return `
-        <div class="sport-block">
-          <div class="sport-head">
-            <div class="sport-head-main">
-              <h3>${escapeHtml(sport.name)}</h3>
-              <button class="time-chip ${sport.time ? 'set' : ''}" data-sport="${sport.id}">
-                ${sport.time ? escapeHtml(sport.time) : 'Set time'}
-              </button>
-            </div>
-            <span>${escapeHtml(formatLabel(sport.format))} · ${escapeHtml(
+        <button class="sport-link" data-open="${sport.id}">
+          <span class="sl-main">
+            <span class="sl-name">${escapeHtml(sport.name)}</span>
+            <span class="sl-meta">${escapeHtml(formatLabel(sport.format))} · ${escapeHtml(
               scoringSummary(sport)
-            )} · ${
-              matches.length ? `${playedHere} of ${matches.length} played` : 'no matches'
+            )} · ${matches.length} ${matches.length === 1 ? 'match' : 'matches'}${
+              pedroHere ? ' · Pedro' : ''
             }</span>
-          </div>
-
-          ${
-            matches.length
-              ? `<div class="fixtures">${matches.map((m) => fixtureRow(m, upNext)).join('')}</div>`
-              : ''
-          }
-
-          ${
-            sittingOut.length
-              ? `<p class="sitting-out">Sitting this one out: ${sittingOut
-                  .map((p) => escapeHtml(p.name))
-                  .join(', ')}</p>`
-              : ''
-          }
-        </div>`;
+          </span>
+          <span class="sl-right">
+            <span class="sl-time ${sport.time ? 'set' : ''}">${
+              sport.time ? escapeHtml(sport.time) : 'no time'
+            }</span>
+            <span class="sl-count">${playedHere} / ${matches.length}</span>
+          </span>
+          <span class="chev" aria-hidden="true"></span>
+        </button>`;
     })
     .join('');
 
-  const addSport = `
-    <button class="add-match" id="btn-add-sport">
-      <span aria-hidden="true">+</span> Add a sport
-    </button>`;
+  body.innerHTML =
+    header +
+    banner +
+    timeHint +
+    coverageLine() +
+    `<p class="eyebrow list-label">The sports — tap one for its matches</p>
+     <div class="sport-list">${rows}</div>
+     <button class="add-match" id="btn-add-sport"><span aria-hidden="true">+</span> Add a sport</button>`;
 
-  body.innerHTML = header + banner + timeHint + coverageLine() + blocks + addSport;
-
-  $$('#matches-body .fixture').forEach((btn) => {
-    btn.onclick = () => openScoreSheet(btn.dataset.match);
-  });
-  $$('#matches-body .time-chip').forEach((btn) => {
-    btn.onclick = () => openSportSheet(btn.dataset.sport);
+  $$('#sports-body .sport-link').forEach((btn) => {
+    btn.onclick = () => { openSportId = btn.dataset.open; view = 'sport'; render(); window.scrollTo({ top: 0 }); };
   });
   $('#btn-add-sport').onclick = openNewSportSheet;
+}
+
+/* ======================= ONE SPORT AND ITS MATCHES ===================== */
+
+function fixtureRow(match, upNext) {
+  const isNow = upNext && match.id === upNext.id;
+  const classes = `fixture ${match.done ? 'played' : ''} ${isNow ? 'now' : ''}`;
+  const badge = match.pedro ? '<span class="pedro-badge">Pedro</span>' : '';
+
+  if (match.sides.length > 2) {
+    const winner = winningSide(match);
+    const result = match.done
+      ? winner
+        ? `${escapeHtml(nameOf(winner.players[0]))} ${winner.score}`
+        : 'Tied'
+      : isNow
+        ? '<em>Up next</em>'
+        : '—';
+    return `
+      <button class="${classes} ffa" data-match="${match.id}">
+        <span class="who">${match.sides
+          .map((side) => `${escapeHtml(nameOf(side.players[0]))}${
+            match.done ? ` <b>${side.score}</b>` : ''
+          }`)
+          .join(' <span class="and">·</span> ')}${badge}</span>
+        <span class="res">${result}</span>
+      </button>`;
+  }
+
+  const [a, b] = match.sides;
+  return `
+    <button class="${classes}" data-match="${match.id}">
+      <span class="who">${teamHtml(a.players)}<br>${teamHtml(b.players)}${badge}</span>
+      <span class="res">${
+        match.done ? `${a.score} – ${b.score}` : isNow ? '<em>Up next</em>' : '—'
+      }</span>
+    </button>`;
+}
+
+function renderSportPage() {
+  const sport = sportOf(openSportId);
+  if (!sport) { view = 'sports'; renderSports(); return; }
+
+  const matches = matchesForSport(state.matches, sport.id);
+  const played = matches.filter((m) => m.done).length;
+  const upNext = nextUnplayed(state);
+  const sittingOut = playersSittingOut(state, sport.id);
+  const pedroHere = matches.filter((m) => m.pedro);
+
+  $('#sport-body').innerHTML = `
+    <div class="sport-page-head">
+      <h2>${escapeHtml(sport.name)}</h2>
+      <p class="meta">${escapeHtml(formatLabel(sport.format))} · ${escapeHtml(
+        scoringSummary(sport)
+      )} · ${sport.time ? escapeHtml(sport.time) : 'no time yet'} · ${played} of ${
+        matches.length
+      } played</p>
+      <div class="two-btns">
+        <button class="ghost" id="sport-settings">Sport settings</button>
+        <button class="ghost" id="sport-add-match">Add a match</button>
+      </div>
+    </div>
+
+    <p class="eyebrow">The matches — tap one to edit it or enter the score</p>
+    ${
+      matches.length
+        ? `<div class="fixtures">${matches.map((m) => fixtureRow(m, upNext)).join('')}</div>`
+        : '<p class="empty">No matches in this sport yet.<br>Add one, or draw a new programme from the menu.</p>'
+    }
+
+    ${
+      pedroHere.length
+        ? `<p class="sitting-out">${pedroHere.length === 1 ? 'One match here is' : `${pedroHere.length} matches here are`} a Pedro match — the extra match for whoever the round left over.</p>`
+        : ''
+    }
+    ${
+      sittingOut.length
+        ? `<p class="sitting-out warn">Nobody should sit out: ${sittingOut
+            .map((p) => escapeHtml(p.name))
+            .join(', ')} ${sittingOut.length === 1 ? 'has' : 'have'} no match here. Add one.</p>`
+        : ''
+    }`;
+
+  $$('#sport-body .fixture').forEach((btn) => {
+    btn.onclick = () => openMatchSheet(btn.dataset.match);
+  });
+  $('#sport-settings').onclick = () => openSportSheet(sport.id);
+  $('#sport-add-match').onclick = () => {
+    try {
+      const match = createMatch(state, sport.id);
+      state.matches.push(match);
+      saveState();
+      render();
+      openMatchSheet(match.id);
+    } catch (error) {
+      toast(error.message);
+    }
+  };
+}
+
+/* =========================== THE MATCH EDITOR ========================== */
+
+function scoreStepper(key, value) {
+  return `
+    <div class="score-control">
+      <button class="round-btn" data-score="${key}" data-delta="-1" aria-label="Lower">−</button>
+      <input id="score-${key}" type="number" inputmode="numeric" pattern="[0-9]*" min="0"
+             value="${value === null || value === undefined ? '' : value}" placeholder="0">
+      <button class="round-btn" data-score="${key}" data-delta="1" aria-label="Raise">+</button>
+    </div>`;
+}
+
+function openMatchSheet(matchId) {
+  const match = matchOf(matchId);
+  if (!match) return;
+  const sport = sportOf(match.sportId);
+
+  editing = {
+    matchId,
+    format: sport.format,
+    sides: match.sides.map((side) => side.players.slice()),
+    scores: match.sides.map((side) => (side.score === null ? '' : String(side.score))),
+    pedro: Boolean(match.pedro),
+    // all vs all: who is in the round at all
+    ffaIn: new Set(match.sides.flatMap((side) => side.players)),
+  };
+
+  $('#match-title').textContent = `${sport.name} — ${formatLabel(sport.format)}`;
+  renderMatchSheet();
+  $('#match-sheet').hidden = false;
+}
+
+/** Read what is on screen back into the editor before re-drawing it. */
+function readMatchSheet() {
+  if (!editing) return;
+  if (isFreeForAll(editing.format)) {
+    for (const player of state.players) {
+      const input = $(`#score-${player.id}`);
+      if (input) editing.ffaScores = { ...(editing.ffaScores || {}), [player.id]: input.value };
+    }
+    return;
+  }
+  editing.scores = editing.sides.map((_, i) => {
+    const input = $(`#score-${i}`);
+    return input ? input.value : editing.scores[i] || '';
+  });
+}
+
+function renderMatchSheet() {
+  const body = $('#match-body');
+  const playerOptions = state.players.map((p) => ({ value: p.id, label: p.name }));
+  $('#match-error').hidden = true;
+
+  if (isFreeForAll(editing.format)) {
+    const scores = editing.ffaScores || {};
+    // seed the score of everyone already in the round
+    const match = matchOf(editing.matchId);
+    for (const side of match.sides) {
+      const id = side.players[0];
+      if (scores[id] === undefined) scores[id] = side.score === null ? '' : String(side.score);
+    }
+    editing.ffaScores = scores;
+
+    body.innerHTML = `
+      <p class="eyebrow">Everybody's own score</p>
+      <div class="ffa-scores">
+        ${state.players
+          .map(
+            (p) => `
+          <div class="ffa-row ${editing.ffaIn.has(p.id) ? '' : 'out'}">
+            <span class="ffa-name">${escapeHtml(p.name)} ${genTag(p.generation)}</span>
+            ${selectHtml({
+              attr: `data-ffa-in="${p.id}" aria-label="In the round"`,
+              options: YES_NO,
+              value: editing.ffaIn.has(p.id) ? 'yes' : 'no',
+              extra: 'sel-soft',
+            })}
+            ${scoreStepper(p.id, scores[p.id] ?? '')}
+          </div>`
+          )
+          .join('')}
+      </div>
+      ${pedroPickerHtml()}`;
+  } else {
+    const size = teamSize(editing.format);
+    const sideBlock = (index) => `
+      <div class="editor-side">
+        <p class="eyebrow">Side ${index === 0 ? 'A' : 'B'} — ${
+          size === 2 ? 'the team and its score' : 'the player and the score'
+        }</p>
+        ${Array.from({ length: size }, (_, slot) =>
+          selectHtml({
+            attr: `data-slot="${index}-${slot}" aria-label="Side ${index === 0 ? 'A' : 'B'} player ${slot + 1}"`,
+            options: playerOptions,
+            value: editing.sides[index] ? editing.sides[index][slot] : '',
+            extra: 'sel-wide sel-player',
+          })
+        ).join('')}
+        ${scoreStepper(String(index), editing.scores[index] ?? '')}
+      </div>`;
+
+    body.innerHTML = `
+      ${sideBlock(0)}
+      <div class="net"><span>VS</span></div>
+      ${sideBlock(1)}
+      ${pedroPickerHtml()}`;
+  }
+
+  $$('#match-body [data-score]').forEach((btn) => {
+    btn.onclick = () => {
+      const input = $(`#score-${btn.dataset.score}`);
+      const current = input.value === '' ? 0 : Number(input.value) || 0;
+      input.value = Math.max(0, current + Number(btn.dataset.delta));
+    };
+  });
+
+  const match = matchOf(editing.matchId);
+  $('#match-clear').hidden = !match.done;
+}
+
+function pedroPickerHtml() {
+  return `
+    <p class="eyebrow">A Pedro match?</p>
+    ${selectHtml({
+      id: 'match-pedro',
+      options: [
+        { value: 'no', label: 'No — a normal match' },
+        { value: 'yes', label: 'Yes — an extra Pedro match' },
+      ],
+      value: editing.pedro ? 'yes' : 'no',
+      extra: 'sel-wide',
+    })}
+    <p class="hint">A Pedro match is the extra match for whoever the round left over. Its points
+      wait until everybody has played one.</p>`;
+}
+
+function saveMatchSheet() {
+  readMatchSheet();
+  const match = matchOf(editing.matchId);
+  if (!match) return closeMatchSheet();
+
+  let sides;
+  if (isFreeForAll(editing.format)) {
+    sides = state.players
+      .filter((p) => editing.ffaIn.has(p.id))
+      .map((p) => ({ players: [p.id], score: editing.ffaScores[p.id] }));
+  } else {
+    sides = editing.sides.map((players, i) => ({ players, score: editing.scores[i] }));
+  }
+
+  const error = validateSides(sides.map((s) => s.players), editing.format);
+  if (error) {
+    $('#match-error').textContent = error;
+    $('#match-error').hidden = false;
+    return;
+  }
+
+  // A match counts as played once every side has a score; leave it open if not.
+  const allScored = sides.every((side) => String(side.score ?? '').trim() !== '');
+  match.sides = sides.map((side) => ({
+    players: side.players.slice(),
+    score: allScored ? Math.max(0, Math.round(Number(side.score) || 0)) : null,
+  }));
+  match.done = allScored;
+  match.pedro = editing.pedro;
+
+  saveState();
+  closeMatchSheet();
+  render();
+  toast(allScored ? 'Result saved' : 'Match saved');
+}
+
+function closeMatchSheet() {
+  $('#match-sheet').hidden = true;
+  editing = null;
 }
 
 /* ============================ SPORT SETTINGS =========================== */
@@ -553,6 +863,7 @@ function openSportSheet(sportId) {
   const sport = sportOf(sportId);
   editingSportId = sportId;
   $('#sport-sheet-title').textContent = sport.name;
+  $('#sport-name').value = sport.name;
   $('#sport-time').value = sport.time || '';
 
   $('#sport-format-field').innerHTML = selectHtml({
@@ -569,11 +880,13 @@ function openSportSheet(sportId) {
       extra: 'sel-wide',
     }) + winPointsRowHtml('sport-winpoints', sport.scoring, sport.winPoints || DEFAULT_WIN_POINTS);
 
+  $('#sport-delete').hidden = state.sports.length < 2;
   $('#sport-sheet').hidden = false;
 }
 
 function saveSportSheet() {
   const sport = sportOf(editingSportId);
+  const name = $('#sport-name').value.trim() || sport.name;
   const time = $('#sport-time').value || null;
   const format = $('#sport-format').value;
   const scoring = $('#sport-scoring').value;
@@ -587,16 +900,17 @@ function saveSportSheet() {
     }
     const finished = matchesForSport(state.matches, sport.id).filter((m) => m.done).length;
     const question = finished
-      ? `Change ${sport.name} to ${formatLabel(format)}? A new match is drawn for this sport and the ${finished} ${
+      ? `Change ${sport.name} to ${formatLabel(format)}? New matches are drawn for this sport and the ${finished} ${
           finished === 1 ? 'result' : 'results'
         } already entered for it are lost.`
-      : `Change ${sport.name} to ${formatLabel(format)}? A new match is drawn for this sport.`;
+      : `Change ${sport.name} to ${formatLabel(format)}? New matches are drawn for this sport.`;
     if (!confirm(question)) return;
 
     sport.format = format;
     state.matches = state.matches.filter((m) => m.sportId !== sport.id);
     state.matches.push(...buildProgramme(state, sport.id));
   }
+  sport.name = name;
   sport.scoring = scoring;
   sport.winPoints = winPoints;
   sport.time = time;
@@ -606,6 +920,21 @@ function saveSportSheet() {
   editingSportId = null;
   render();
   toast('Sport updated');
+}
+
+function deleteSport() {
+  const sport = sportOf(editingSportId);
+  if (!confirm(`Delete ${sport.name} and its matches?`)) return;
+  state.sports = state.sports.filter((s) => s.id !== sport.id);
+  state.matches = state.matches.filter((m) => m.sportId !== sport.id);
+  if (tableFilter === sport.id) tableFilter = 'all';
+  saveState();
+  $('#sport-sheet').hidden = true;
+  editingSportId = null;
+  openSportId = null;
+  view = 'sports';
+  render();
+  toast(`${sport.name} deleted`);
 }
 
 /* =========================== A SPORT ADDED LATER ======================== */
@@ -665,7 +994,8 @@ function renderNewSportSheet() {
 
 function readNewSportSheet() {
   const custom = $('#new-sport-custom');
-  newSport.time = $('#new-sport-time').value || '';
+  const time = $('#new-sport-time');
+  if (time) newSport.time = time.value || '';
   if (custom) newSport.name = custom.value;
 }
 
@@ -694,86 +1024,95 @@ function addNewSport() {
   saveState();
   $('#new-sport-sheet').hidden = true;
   newSport = null;
-  view = 'matches';
+  openSportId = sport.id;
+  view = 'sport';
   render();
   toast(`${name} added`);
 }
 
-/* ============================== SCORE SHEET ============================= */
+/* =========================== THE PEDRO BOARD =========================== */
 
-function scoreStepper(key, value) {
-  return `
-    <div class="score-control">
-      <button class="round-btn" data-score="${key}" data-delta="-1" aria-label="Lower">−</button>
-      <input id="score-${key}" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="${value}">
-      <button class="round-btn" data-score="${key}" data-delta="1" aria-label="Raise">+</button>
-    </div>`;
-}
+function renderPedro() {
+  const status = pedroStatus(state);
+  const rows = pedroStandings(state);
+  const upNext = nextUnplayed(state);
 
-function openScoreSheet(matchId) {
-  const match = state.matches.find((m) => m.id === matchId);
-  if (!match) return;
-  editingMatchId = matchId;
-  const sport = sportOf(match.sportId);
-  $('#sheet-sport').textContent = `${sport.name} — ${scoringSummary(sport)}`;
-
-  if (match.sides.length > 2) {
-    // All vs all: everybody enters his own score in one list.
-    $('#sheet-body').innerHTML = `
-      <div class="ffa-scores">
-        ${match.sides
-          .map(
-            (side, i) => `
-          <div class="ffa-row">
-            <span class="ffa-name">${escapeHtml(nameOf(side.players[0]))}
-              ${genTag(playerOf(side.players[0]).generation)}</span>
-            ${scoreStepper(String(i), side.score ?? 0)}
-          </div>`
-          )
-          .join('')}
-      </div>`;
-  } else {
-    $('#sheet-body').innerHTML = `
-      <div class="score-row">
-        <div class="court-side">
-          <p class="team-names">${teamHtml(match.sides[0].players)}</p>
-          ${scoreStepper('0', match.sides[0].score ?? 0)}
-        </div>
-        <div class="net"><span>VS</span></div>
-        <div class="court-side">
-          <p class="team-names">${teamHtml(match.sides[1].players)}</p>
-          ${scoreStepper('1', match.sides[1].score ?? 0)}
-        </div>
-      </div>`;
+  if (!status.total) {
+    $('#pedro-body').innerHTML =
+      '<p class="empty">No Pedro matches.<br>One appears by itself when a sport leaves somebody over — nobody sits out.</p>';
+    return;
   }
 
-  $$('#sheet-body [data-score]').forEach((btn) => {
-    btn.onclick = () => {
-      const input = $(`#score-${btn.dataset.score}`);
-      input.value = Math.max(0, (Number(input.value) || 0) + Number(btn.dataset.delta));
-    };
+  const statusText = status.complete
+    ? status.counts
+      ? 'Everybody has played a Pedro match, so the Pedro points count in the table.'
+      : 'Everybody has played a Pedro match, but Pedro points are switched off, so they stay here.'
+    : `Pedro points are waiting for ${status.waiting
+        .map((p) => escapeHtml(p.name))
+        .join(', ')}. They count in the table once everybody has played a Pedro match.`;
+
+  $('#pedro-body').innerHTML = `
+    <div class="pedro-status ${status.live ? 'live' : ''}">
+      <span class="label">${status.live ? 'Pedro points count' : 'Pedro points on hold'}</span>
+      <p>${statusText}</p>
+      <p class="eyebrow">${status.playedCount} of ${state.players.length} have played one · ${
+        status.done
+      } of ${status.total} Pedro matches played</p>
+    </div>
+
+    <p class="eyebrow">Do Pedro points count in the table?</p>
+    ${selectHtml({
+      id: 'pedro-counts',
+      options: [
+        { value: 'yes', label: 'Yes — add them once everybody has played' },
+        { value: 'no', label: 'No — Pedro is just for the fun of it' },
+      ],
+      value: status.counts ? 'yes' : 'no',
+      extra: 'sel-wide',
+    })}
+
+    <p class="eyebrow">The Pedro board</p>
+    <div class="standings">
+      <div class="standings-head">
+        <span class="spacer"></span>
+        <span class="who-name">Player</span>
+        <span class="record">Played</span>
+        <span class="pts">Pts</span>
+      </div>
+      ${rows
+        .map(
+          (row, i) => `
+        <div class="standings-row${i === 0 && row.played ? ' top' : ''}">
+          ${medal(i + 1)}
+          <span class="who-name">
+            <span class="nm">${escapeHtml(row.name)}</span>
+            <span class="gen gen-line gen-${row.generation}">${escapeHtml(
+              generationLabel(row.generation)
+            )}</span>
+          </span>
+          <span class="record">${row.played}</span>
+          <span class="pts">${row.points}</span>
+        </div>`
+        )
+        .join('')}
+    </div>
+
+    <p class="eyebrow">The Pedro matches</p>
+    <div class="fixtures">
+      ${status.matches
+        .map(
+          (match) =>
+            `<div class="pedro-match">
+               <span class="pm-sport">${escapeHtml(sportName(match.sportId))}</span>
+               ${fixtureRow(match, upNext)}
+             </div>`
+        )
+        .join('')}
+    </div>`;
+
+  $$('#pedro-body .fixture').forEach((btn) => {
+    btn.onclick = () => openMatchSheet(btn.dataset.match);
   });
-
-  $('#sheet').hidden = false;
-}
-
-function closeSheet() {
-  $('#sheet').hidden = true;
-  editingMatchId = null;
-}
-
-function saveScoreSheet() {
-  const match = state.matches.find((m) => m.id === editingMatchId);
-  if (!match) return closeSheet();
-  match.sides.forEach((side, i) => {
-    const input = $(`#score-${i}`);
-    side.score = Math.max(0, Math.round(Number(input && input.value) || 0));
-  });
-  match.done = true;
-  closeSheet();
-  saveState();
-  render();
-  toast('Result saved');
 }
 
 /* ================================ TABLE ================================= */
@@ -785,6 +1124,9 @@ function pointsHeaderFor(filter) {
 }
 
 function renderTable() {
+  // A sport can be deleted from under a filter; fall back to the overall table.
+  if (tableFilter !== 'all' && !sportOf(tableFilter)) tableFilter = 'all';
+
   const chips = $('#table-chips');
   chips.innerHTML =
     `<button data-filter="all" class="${tableFilter === 'all' ? 'on' : ''}">Overall</button>` +
@@ -800,9 +1142,7 @@ function renderTable() {
     btn.onclick = () => { tableFilter = btn.dataset.filter; render(); };
   });
 
-  // A sport can be removed from under a filter; fall back to the overall table.
-  if (tableFilter !== 'all' && !sportOf(tableFilter)) tableFilter = 'all';
-
+  const status = pedroStatus(state);
   const rows = standings(state, tableFilter === 'all' ? null : tableFilter);
   const anyPlayed = rows.some((r) => r.played > 0);
 
@@ -812,8 +1152,10 @@ function renderTable() {
     return;
   }
 
-  const scope = state.matches.filter((m) => tableFilter === 'all' || m.sportId === tableFilter);
-  const playedHere = scope.filter((m) => m.done).length;
+  const counted = state.matches.filter(
+    (m) => (tableFilter === 'all' || m.sportId === tableFilter) && (!m.pedro || status.live)
+  );
+  const playedHere = counted.filter((m) => m.done).length;
   const pointsHeader = pointsHeaderFor(tableFilter);
 
   // The one question this screen exists to answer, answered before the detail.
@@ -826,7 +1168,17 @@ function renderTable() {
       ? `Level with ${escapeHtml(runnerUp.name)} on points`
       : `${gap} ${gap === 1 ? 'point' : 'points'} clear of ${escapeHtml(runnerUp.name)}`;
 
-  const finished = scope.length > 0 && playedHere === scope.length;
+  const finished = counted.length > 0 && playedHere === counted.length;
+  const pedroNote =
+    status.total && !status.live
+      ? `<p class="hint cover-line">${
+          status.counts
+            ? `Pedro points are not in yet — waiting for ${status.waiting
+                .map((p) => escapeHtml(p.name))
+                .join(', ')}.`
+            : 'Pedro points are switched off, so they are not in this table.'
+        }</p>`
+      : '';
 
   $('#table-body').innerHTML = `
     ${finished ? `<div class="champion-strip">${TROPHY_SVG}</div>` : ''}
@@ -840,7 +1192,8 @@ function renderTable() {
       <div class="total"><b>${leaderRow.points}</b><span>${pointsHeader}</span></div>
     </div>
 
-    <p class="eyebrow">After ${playedHere} of ${scope.length} ${scope.length === 1 ? 'match' : 'matches'}</p>
+    <p class="eyebrow">After ${playedHere} of ${counted.length} ${counted.length === 1 ? 'match' : 'matches'}</p>
+    ${pedroNote}
     <div class="standings">
       <div class="standings-head">
         <span class="spacer"></span>
@@ -876,7 +1229,7 @@ function renderTable() {
 function shareText() {
   const rows = standings(state, tableFilter === 'all' ? null : tableFilter);
   const { done, total } = progress(state.matches);
-  const title = tableFilter === 'all' ? 'Dad Championships' : `Dad Championships — ${sportName(tableFilter)}`;
+  const title = tableFilter === 'all' ? state.name : `${state.name} — ${sportName(tableFilter)}`;
   const medals = ['🥇', '🥈', '🥉'];
   const width = Math.max(...rows.map((r) => r.name.length));
 
@@ -913,34 +1266,38 @@ async function share() {
 
 function render() {
   const setupMode = !state;
+  const views = ['setup', 'sports', 'sport', 'table', 'pedro'];
 
-  $('#view-setup').hidden = !setupMode;
+  if (setupMode) view = 'setup';
+  if (view === 'sport' && !sportOf(openSportId)) view = 'sports';
+
+  views.forEach((name) => {
+    $(`#view-${name}`).hidden = name !== (setupMode ? 'setup' : view);
+  });
   $('#tabs').hidden = setupMode;
   $('#btn-menu').hidden = setupMode;
-  ['matches', 'table'].forEach((name) => {
-    $(`#view-${name}`).hidden = setupMode || view !== name;
-  });
+  $('#btn-back').hidden = view !== 'sport';
+
+  renderBrand();
 
   if (setupMode) {
-    $('#champ-name').textContent = 'Dad Championships';
-    $('#champ-sub').textContent = 'Set up a new championship';
     renderSetup();
     return;
   }
 
-  const counts = { dad: 0, granddad: 0, kid: 0 };
-  for (const p of state.players) counts[p.generation] = (counts[p.generation] || 0) + 1;
-  const who = GENERATIONS.filter((g) => counts[g.id] > 0)
-    .map((g) => `${counts[g.id]} ${g.label.toLowerCase()}${counts[g.id] === 1 ? '' : 's'}`)
-    .join(' · ');
+  const hasPedro = pedroMatches(state.matches).length > 0;
+  $('#tab-pedro').hidden = !hasPedro;
+  $('#tabs').classList.toggle('two', !hasPedro);
+  if (view === 'pedro' && !hasPedro) view = 'sports';
 
-  $('#champ-name').textContent = 'Dad Championships';
-  $('#champ-sub').textContent = who;
+  $$('#tabs button').forEach((b) =>
+    b.classList.toggle('on', b.dataset.view === (view === 'sport' ? 'sports' : view))
+  );
 
-  $$('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
-
-  if (view === 'matches') renderMatches();
+  if (view === 'sports') renderSports();
+  if (view === 'sport') renderSportPage();
   if (view === 'table') renderTable();
+  if (view === 'pedro') renderPedro();
 }
 
 /* =============================== WIRING ================================= */
@@ -995,6 +1352,34 @@ document.addEventListener('change', (event) => {
     return;
   }
 
+  // ---- the match editor: pick a player into a slot, swapping if he is already in
+  if (select.dataset.slot) {
+    readMatchSheet();
+    const [sideIndex, slotIndex] = select.dataset.slot.split('-').map(Number);
+    const chosen = select.value;
+    const previous = editing.sides[sideIndex][slotIndex];
+    editing.sides.forEach((side, s) => {
+      side.forEach((id, k) => {
+        if (id === chosen && !(s === sideIndex && k === slotIndex)) editing.sides[s][k] = previous;
+      });
+    });
+    editing.sides[sideIndex][slotIndex] = chosen;
+    renderMatchSheet();
+    return;
+  }
+  if (select.dataset.ffaIn) {
+    readMatchSheet();
+    const id = select.dataset.ffaIn;
+    if (select.value === 'yes') editing.ffaIn.add(id);
+    else editing.ffaIn.delete(id);
+    renderMatchSheet();
+    return;
+  }
+  if (select.id === 'match-pedro') {
+    editing.pedro = select.value === 'yes';
+    return;
+  }
+
   // ---- the sport sheet: the win-points choice only applies to one point type
   if (select.id === 'sport-scoring') {
     $('#sport-sheet .win-points-row').hidden = select.value !== 'match';
@@ -1028,6 +1413,15 @@ document.addEventListener('change', (event) => {
   }
   if (select.id === 'new-sport-winpoints') {
     newSport.winPoints = Number(select.value);
+    return;
+  }
+
+  // ---- the Pedro board
+  if (select.id === 'pedro-counts') {
+    state.pedroCounts = select.value === 'yes';
+    saveState();
+    render();
+    toast(state.pedroCounts ? 'Pedro points count' : 'Pedro points are just for fun');
   }
 });
 
@@ -1044,7 +1438,9 @@ document.addEventListener('click', (event) => {
   const tab = event.target.closest('#tabs button');
   if (tab) {
     view = tab.dataset.view;
+    if (view === 'sports') openSportId = null;
     render();
+    window.scrollTo({ top: 0 });
   }
 });
 
@@ -1058,20 +1454,55 @@ document.addEventListener('input', (event) => {
     renderPreview();
     return;
   }
+  if (event.target.id === 'champ-name-input') {
+    draft.name = event.target.value;
+    saveDraft();
+    $('#crest-preview').innerHTML = crestSvg(draft.name || DEFAULT_NAME, 52, 'setup');
+    return;
+  }
+  if (event.target.id === 'name-input') {
+    $('#name-crest').innerHTML = crestSvg(event.target.value || DEFAULT_NAME, 52, 'rename');
+    return;
+  }
   if (event.target.id === 'new-sport-custom') newSport.name = event.target.value;
 });
 
 $('#btn-create').onclick = createChampionship;
 
-$('#sheet-cancel').onclick = closeSheet;
-$('#sheet').onclick = (event) => { if (event.target.id === 'sheet') closeSheet(); };
-$('#sheet-save').onclick = saveScoreSheet;
+$('#btn-back').onclick = () => {
+  view = 'sports';
+  openSportId = null;
+  render();
+  window.scrollTo({ top: 0 });
+};
+
+$('#match-cancel').onclick = closeMatchSheet;
+$('#match-sheet').onclick = (event) => { if (event.target.id === 'match-sheet') closeMatchSheet(); };
+$('#match-save').onclick = saveMatchSheet;
+$('#match-clear').onclick = () => {
+  const match = matchOf(editing.matchId);
+  match.sides.forEach((side) => { side.score = null; });
+  match.done = false;
+  saveState();
+  closeMatchSheet();
+  render();
+  toast('Result cleared');
+};
+$('#match-delete').onclick = () => {
+  if (!confirm('Delete this match?')) return;
+  state.matches = state.matches.filter((m) => m.id !== editing.matchId);
+  saveState();
+  closeMatchSheet();
+  render();
+  toast('Match deleted');
+};
 
 $('#sport-cancel').onclick = () => { $('#sport-sheet').hidden = true; editingSportId = null; };
 $('#sport-sheet').onclick = (event) => {
   if (event.target.id === 'sport-sheet') { $('#sport-sheet').hidden = true; editingSportId = null; }
 };
 $('#sport-save').onclick = saveSportSheet;
+$('#sport-delete').onclick = deleteSport;
 $('#sport-time-clear').onclick = () => { $('#sport-time').value = ''; };
 
 $('#new-sport-cancel').onclick = () => { $('#new-sport-sheet').hidden = true; newSport = null; };
@@ -1080,11 +1511,28 @@ $('#new-sport-sheet').onclick = (event) => {
 };
 $('#new-sport-save').onclick = addNewSport;
 
+$('#name-cancel').onclick = () => { $('#name-sheet').hidden = true; };
+$('#name-sheet').onclick = (event) => { if (event.target.id === 'name-sheet') $('#name-sheet').hidden = true; };
+$('#name-save').onclick = () => {
+  state.name = $('#name-input').value.trim() || DEFAULT_NAME;
+  saveState();
+  $('#name-sheet').hidden = true;
+  render();
+  toast('Name and crest updated');
+};
+
 $('#btn-share').onclick = share;
 $('#menu-share').onclick = () => { $('#menu').hidden = true; share(); };
 $('#btn-menu').onclick = () => { $('#menu').hidden = false; };
 $('#menu-close').onclick = () => { $('#menu').hidden = true; };
 $('#menu').onclick = (event) => { if (event.target.id === 'menu') $('#menu').hidden = true; };
+
+$('#menu-rename').onclick = () => {
+  $('#menu').hidden = true;
+  $('#name-input').value = state.name;
+  $('#name-crest').innerHTML = crestSvg(state.name, 52, 'rename');
+  $('#name-sheet').hidden = false;
+};
 
 $('#menu-reset').onclick = () => {
   if (!confirm('Clear every result but keep the players, the sports and the programme?')) return;
@@ -1094,7 +1542,7 @@ $('#menu-reset').onclick = () => {
   });
   saveState();
   $('#menu').hidden = true;
-  view = 'matches';
+  view = 'sports';
   render();
   toast('Results cleared');
 };
@@ -1104,7 +1552,8 @@ $('#menu-rebuild').onclick = () => {
   buildAllProgrammes(state);
   saveState();
   $('#menu').hidden = true;
-  view = 'matches';
+  view = 'sports';
+  openSportId = null;
   render();
   toast('New programme drawn up');
 };

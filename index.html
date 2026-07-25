@@ -20,10 +20,12 @@
 <div id="app">
 
   <header class="topbar" id="topbar">
-    <div class="topbar-title">
-      <h1 id="champ-name">Dad Championships</h1>
-      <p id="champ-sub" class="sub">Set up a new championship</p>
-    </div>
+    <button id="btn-back" class="icon-btn" aria-label="Back to the sports" hidden>
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M12 4 L6 10 L12 16" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+    <div class="brand" id="brand"></div>
     <button id="btn-menu" class="icon-btn" aria-label="Menu" hidden>
       <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
         <circle cx="4" cy="10" r="1.7"/><circle cx="10" cy="10" r="1.7"/><circle cx="16" cy="10" r="1.7"/>
@@ -41,10 +43,18 @@
         <li data-step="2"><span>2</span>Sports</li>
       </ol>
 
-      <!-- Step 1: the family -->
+      <!-- Step 1: the name and the family -->
       <div class="step" data-step="1">
         <h2>Who is playing?</h2>
-        <p class="hint">Dads, granddads and kids all play the same championship.</p>
+        <p class="hint">Give the championship its name — the crest is drawn from it. Dads,
+          granddads and kids all play the same championship.</p>
+
+        <div class="crest-field">
+          <div id="crest-preview"></div>
+          <input type="text" id="champ-name-input" placeholder="Dad Championships"
+                 autocapitalize="words" autocomplete="off" spellcheck="false">
+        </div>
+
         <div class="count-field" id="players-count-field"></div>
         <p class="eyebrow">The field</p>
         <div id="player-names" class="name-list"></div>
@@ -70,9 +80,14 @@
       </div>
     </section>
 
-    <!-- =========================== MATCHES =========================== -->
-    <section id="view-matches" class="view" hidden>
-      <div id="matches-body"></div>
+    <!-- ======================== THE SPORTS LIST ======================= -->
+    <section id="view-sports" class="view" hidden>
+      <div id="sports-body"></div>
+    </section>
+
+    <!-- ===================== ONE SPORT AND ITS MATCHES ================ -->
+    <section id="view-sport" class="view" hidden>
+      <div id="sport-body"></div>
     </section>
 
     <!-- ============================ TABLE ============================ -->
@@ -82,15 +97,20 @@
       <button class="ghost wide" id="btn-share">Share the table</button>
     </section>
 
+    <!-- ========================= THE PEDRO BOARD ===================== -->
+    <section id="view-pedro" class="view" hidden>
+      <div id="pedro-body"></div>
+    </section>
+
   </main>
 
-  <nav id="tabs" class="tabs two" hidden>
-    <button data-view="matches" class="on">
+  <nav id="tabs" class="tabs" hidden>
+    <button data-view="sports" class="on">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
         <rect x="4" y="4" width="16" height="17" rx="2.5"/><path d="M8 3v3M16 3v3" stroke-linecap="round"/>
         <path d="M8 11h8M8 15.5h5" stroke-linecap="round"/>
       </svg>
-      Matches
+      Sports
     </button>
     <button data-view="table">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
@@ -99,41 +119,43 @@
       </svg>
       Table
     </button>
+    <button data-view="pedro" id="tab-pedro" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <rect x="3.5" y="3.5" width="17" height="17" rx="4"/>
+        <circle cx="8.5" cy="8.5" r="1.4" fill="currentColor" stroke="none"/>
+        <circle cx="15.5" cy="15.5" r="1.4" fill="currentColor" stroke="none"/>
+        <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/>
+      </svg>
+      Pedro
+    </button>
   </nav>
 
 </div>
 
-<!-- a sport added later, when there turns out to be more time -->
-<div id="new-sport-sheet" class="sheet" hidden>
+<!-- the match editor: who plays whom, and the score -->
+<div id="match-sheet" class="sheet" hidden>
   <div class="sheet-card">
     <div class="grabber"></div>
-    <h2>Add a sport</h2>
-    <div id="new-sport-body"></div>
+    <p class="sheet-sport" id="match-title"></p>
+    <div id="match-body"></div>
+    <p class="error" id="match-error" hidden></p>
     <div class="row-btns">
-      <button class="ghost" id="new-sport-cancel">Cancel</button>
-      <button class="primary" id="new-sport-save">Add the sport</button>
+      <button class="ghost" id="match-cancel">Cancel</button>
+      <button class="primary" id="match-save">Save</button>
     </div>
+    <button class="ghost wide" id="match-clear">Clear the result</button>
+    <button class="danger wide" id="match-delete">Delete this match</button>
   </div>
 </div>
 
-<!-- score editor -->
-<div id="sheet" class="sheet" hidden>
-  <div class="sheet-card">
-    <div class="grabber"></div>
-    <p class="sheet-sport" id="sheet-sport"></p>
-    <div id="sheet-body"></div>
-    <div class="row-btns">
-      <button class="ghost" id="sheet-cancel">Cancel</button>
-      <button class="primary" id="sheet-save">Save result</button>
-    </div>
-  </div>
-</div>
-
-<!-- sport settings: the booked time, the game type and the point type -->
+<!-- sport settings: the name, the booked time, the game type and the point type -->
 <div id="sport-sheet" class="sheet" hidden>
   <div class="sheet-card">
     <div class="grabber"></div>
     <h2 id="sport-sheet-title">Sport</h2>
+
+    <p class="eyebrow">Name</p>
+    <input type="text" id="sport-name" class="sheet-input" autocapitalize="words" autocomplete="off" spellcheck="false">
 
     <p class="eyebrow">Booked time</p>
     <div class="time-row">
@@ -152,6 +174,38 @@
       <button class="ghost" id="sport-cancel">Cancel</button>
       <button class="primary" id="sport-save">Save</button>
     </div>
+    <button class="danger wide" id="sport-delete">Delete this sport</button>
+  </div>
+</div>
+
+<!-- a sport added later, when there turns out to be more time -->
+<div id="new-sport-sheet" class="sheet" hidden>
+  <div class="sheet-card">
+    <div class="grabber"></div>
+    <h2>Add a sport</h2>
+    <div id="new-sport-body"></div>
+    <div class="row-btns">
+      <button class="ghost" id="new-sport-cancel">Cancel</button>
+      <button class="primary" id="new-sport-save">Add the sport</button>
+    </div>
+  </div>
+</div>
+
+<!-- the championship's own name, which the crest is drawn from -->
+<div id="name-sheet" class="sheet" hidden>
+  <div class="sheet-card">
+    <div class="grabber"></div>
+    <h2>Championship name</h2>
+    <div class="crest-field">
+      <div id="name-crest"></div>
+      <input type="text" id="name-input" placeholder="Dad Championships"
+             autocapitalize="words" autocomplete="off" spellcheck="false">
+    </div>
+    <p class="hint">The crest in the top corner is drawn from the name.</p>
+    <div class="row-btns">
+      <button class="ghost" id="name-cancel">Cancel</button>
+      <button class="primary" id="name-save">Save</button>
+    </div>
   </div>
 </div>
 
@@ -160,6 +214,7 @@
   <div class="sheet-card">
     <div class="grabber"></div>
     <h2>Championship</h2>
+    <button class="ghost wide" id="menu-rename">Name and crest</button>
     <button class="ghost wide" id="menu-share">Share the table</button>
     <button class="ghost wide" id="menu-reset">Clear all results</button>
     <button class="ghost wide" id="menu-rebuild">Draw up a new programme</button>

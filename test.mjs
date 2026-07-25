@@ -7,8 +7,11 @@ import {
   SCORINGS,
   scoringLabel,
   scoringSummary,
+  sideLabel,
+  championshipInitials,
   WIN_POINT_CHOICES,
   teamSize,
+  matchSize,
   isFreeForAll,
   orderedSports,
   sportsByOrder,
@@ -24,6 +27,11 @@ import {
   playersSittingOut,
   buildProgramme,
   buildAllProgrammes,
+  createMatch,
+  validateSides,
+  pedroMatches,
+  pedroStatus,
+  pedroStandings,
   playersInMatch,
   winningSide,
   matchPointsFor,
@@ -83,6 +91,15 @@ function baseState(overrides = {}) {
 const sides = (...groups) => groups.map((players) => ({ players, score: null }));
 const played = (...pairs) => pairs.map(([players, score]) => ({ players, score }));
 const idsFor = (n) => Array.from({ length: n }, (_, i) => `p${i + 1}`);
+
+/** A predictable stand-in for Math.random, so a Pedro draw can be tested. */
+function rng(seed = 7) {
+  let value = seed;
+  return () => {
+    value = (value * 1103515245 + 12345) % 2147483648;
+    return value / 2147483648;
+  };
+}
 
 /** Every player who appears in a round, with how many matches he has in it. */
 function appearances(round) {
@@ -258,17 +275,121 @@ group('a sport added later picks up the pairings still missing', () => {
     matchesForSport(s.matches, 's4').length === 2);
 });
 
-group('somebody sits out an odd sport', () => {
+group('nobody sits a sport out — the odd one gets a Pedro match', () => {
+  // Five for badminton: two matches leave one over, and he plays a Pedro match
+  // instead of sitting on the bench.
   const s = {
     players: players.slice(0, 5),
     nextMatchNo: 0,
     matches: [],
-    sports: [sport({ id: 's1', name: 'Darts', order: 0, format: '1v1' })],
+    pedroCounts: true,
+    sports: [sport({ id: 's1', name: 'Badminton', order: 0, format: '1v1' })],
   };
-  buildAllProgrammes(s);
-  check('five players give two matches', matchesForSport(s.matches, 's1').length === 2);
-  check('exactly one player sits out', playersSittingOut(s, 's1').length === 1);
-  check('the four others play', playersInMatch(s.matches[0]).length === 2);
+  buildAllProgrammes(s, rng());
+
+  check('nobody sits out', playersSittingOut(s, 's1').length === 0);
+  check('five players give three matches', matchesForSport(s.matches, 's1').length === 3);
+  check('one of them is a Pedro match', pedroMatches(s.matches).length === 1);
+  check('the preview count includes the Pedro match', matchesPerSport(5, '1v1') === 3);
+  check(
+    'the player the round left over is in the Pedro match',
+    playersInMatch(pedroMatches(s.matches)[0]).length === 2
+  );
+  check(
+    'everyone has a match',
+    new Set(matchesForSport(s.matches, 's1').flatMap(playersInMatch)).size === 5
+  );
+  check(
+    'the Pedro match is the only one anybody plays twice in',
+    matchesForSport(s.matches, 's1').filter((m) => !m.pedro).flatMap(playersInMatch).length === 4
+  );
+
+  // Doubles with six: the two the round leaves over are teamed up.
+  const d = {
+    players: players.slice(0, 6),
+    nextMatchNo: 0,
+    matches: [],
+    pedroCounts: true,
+    sports: [sport({ id: 's1', name: 'Padel', order: 0, format: '2v2' })],
+  };
+  buildAllProgrammes(d, rng());
+  check('doubles with six leaves nobody out', playersSittingOut(d, 's1').length === 0);
+  check('and adds one Pedro match of four', pedroMatches(d.matches).length === 1 &&
+    playersInMatch(pedroMatches(d.matches)[0]).length === 4);
+  check('the preview count agrees for doubles', matchesPerSport(6, '2v2') === 2);
+
+  // All vs all always has everybody in it, so it never needs a Pedro match.
+  const f = {
+    players: players.slice(0, 5),
+    nextMatchNo: 0,
+    matches: [],
+    pedroCounts: true,
+    sports: [sport({ id: 's1', name: 'Mini golf', order: 0, format: 'ffa' })],
+  };
+  buildAllProgrammes(f, rng());
+  check('all vs all needs no Pedro match', pedroMatches(f.matches).length === 0);
+  check('and still nobody sits out', playersSittingOut(f, 's1').length === 0);
+});
+
+group('Pedro points wait until everybody has played a Pedro match', () => {
+  const s = {
+    players: players.slice(0, 5),
+    nextMatchNo: 0,
+    matches: [],
+    pedroCounts: true,
+    sports: [
+      sport({ id: 's1', name: 'Badminton', order: 0, format: '1v1', winPoints: 3 }),
+      sport({ id: 's2', name: 'Darts', order: 1, format: '1v1', winPoints: 3 }),
+      sport({ id: 's3', name: 'Bowling', order: 2, format: '1v1', winPoints: 3 }),
+      sport({ id: 's4', name: 'Boules', order: 3, format: '1v1', winPoints: 3 }),
+      sport({ id: 's5', name: 'Pool', order: 4, format: '1v1', winPoints: 3 }),
+    ],
+  };
+  buildAllProgrammes(s, rng());
+  check('one Pedro match per sport', pedroMatches(s.matches).length === 5);
+
+  // play everything
+  for (const match of s.matches) {
+    match.sides[0].score = 11;
+    match.sides[1].score = 6;
+    match.done = true;
+  }
+
+  const status = pedroStatus(s);
+  check('every player got a Pedro match', status.waiting.length === 0, JSON.stringify(status.waiting.map((p) => p.name)));
+  check('so the Pedro points are live', status.live === true);
+  const withPedro = standings(s);
+  const withoutPedro = standings(s, null, { pedro: 'exclude' });
+  check('the table counts them once they are live',
+    withPedro.reduce((sum, r) => sum + r.points, 0) > withoutPedro.reduce((sum, r) => sum + r.points, 0));
+
+  // one Pedro match not played yet: the points are held back again
+  const held = JSON.parse(JSON.stringify(s));
+  const pedro = pedroMatches(held.matches);
+  const target = playersInMatch(pedro[0])[0];
+  for (const m of pedroMatches(held.matches)) {
+    if (playersInMatch(m).includes(target)) { m.done = false; m.sides.forEach((x) => { x.score = null; }); }
+  }
+  const heldStatus = pedroStatus(held);
+  check('an unplayed Pedro match holds the points back', heldStatus.live === false);
+  check('and the board names who is waiting', heldStatus.waiting.length > 0);
+  check('the table then matches the one without Pedro',
+    JSON.stringify(standings(held).map((r) => r.points)) ===
+      JSON.stringify(standings(held, null, { pedro: 'exclude' }).map((r) => r.points)));
+
+  // and you can switch them off entirely
+  const off = { ...s, pedroCounts: false };
+  check('Pedro points can be turned off', pedroStatus(off).live === false);
+  check('the table then leaves them out',
+    JSON.stringify(standings(off).map((r) => r.points)) ===
+      JSON.stringify(standings(off, null, { pedro: 'exclude' }).map((r) => r.points)));
+
+  // the Pedro board counts the Pedro matches on their own
+  const board = pedroStandings(s);
+  check('the Pedro board only counts Pedro matches',
+    board.reduce((sum, r) => sum + r.played, 0) === 10, `got ${board.reduce((sum, r) => sum + r.played, 0)}`);
+  check('and it works even while the points are held back',
+    pedroStandings(held).some((r) => r.played > 0));
 });
 
 group('rebuilding one sport leaves the others alone', () => {
@@ -397,6 +518,11 @@ group('a saved championship survives an update', () => {
   check('the booked time is kept', migrated.sports[0].time === '10:30');
   check('the old point type moves onto the sport', migrated.sports[0].scoring === 'score');
   check('a win gets a value it did not have before', migrated.sports[0].winPoints === 3);
+  check('the championship gets a name for its crest', migrated.name === 'Dad Championships');
+  check('a name that was already chosen is kept', migrateState({ ...old, name: 'Hvejsel Cup' }).name === 'Hvejsel Cup');
+  check('Pedro points count unless they were switched off', migrated.pedroCounts === true);
+  check('and switching them off survives', migrateState({ ...old, pedroCounts: false }).pedroCounts === false);
+  check('old matches are not Pedro matches', migrated.matches[0].pedro === false);
   check('the played result is kept', migrated.matches[0].done === true);
   check('the two teams become two sides',
     migrated.matches[0].sides.map((s) => s.players[0] + '=' + s.score).join(',') === 'p1=12,p2=9');
@@ -410,6 +536,74 @@ group('a saved championship survives an update', () => {
   check('a current championship is unchanged by the migration',
     again.matches[0].sides[0].score === 3 && again.sports[0].winPoints === 3);
   check('and it keeps its own per-sport point types', again.sports[2].scoring === 'score');
+});
+
+group('the crest is drawn from the championship name', () => {
+  check('two words give two letters', championshipInitials('Dad Championships') === 'DC');
+  check('three words give three', championshipInitials('Hvejsel Family Cup') === 'HFC');
+  check('small words are skipped', championshipInitials('Battle of the Dads') === 'BD');
+  check('one word gives its first two letters', championshipInitials('Bornholm') === 'BO');
+  check('four words are cut to three letters', championshipInitials('Jesper Bent Emil Alma') === 'JBE');
+  check('an empty name still gives a monogram', championshipInitials('') === 'DC');
+  check('so does a missing one', championshipInitials(undefined) === 'DC');
+  check('Danish letters survive', championshipInitials('Ærø Cup') === 'ÆC');
+});
+
+group('a score belongs to a team in doubles and to a person otherwise', () => {
+  check('doubles scores a team', sideLabel('2v2') === 'team');
+  check('singles scores a person', sideLabel('1v1') === 'player');
+  check('all vs all scores a person', sideLabel('ffa') === 'player');
+  check('a singles match holds two players', matchSize('1v1') === 2);
+  check('a doubles match holds four', matchSize('2v2') === 4);
+
+  // both players on a doubles team get the team's score
+  const s = baseState({
+    matches: [{ id: 'm1', sportId: 's1', sides: played([['p1', 'p2'], 21], [['p3', 'p4'], 15]), done: true }],
+  });
+  const table = standings(s, 's1');
+  const row = (id) => table.find((r) => r.playerId === id);
+  check('both winners are credited with the team score', row('p1').pointsFor === 21 && row('p2').pointsFor === 21);
+  check('both losers are credited with theirs', row('p3').pointsFor === 15 && row('p4').pointsFor === 15);
+  check('and both winners get the win', row('p1').won === 1 && row('p2').won === 1);
+});
+
+group('every element of a match can be edited', () => {
+  const s = baseState({ sports: [sport({ id: 's1', name: 'Darts', order: 0, format: '1v1' })] });
+  buildAllProgrammes(s, rng());
+
+  check('a singles match needs one player on each side', validateSides([['p1'], []], '1v1') !== null);
+  check('two on a side is not singles', validateSides([['p1', 'p2'], ['p3']], '1v1') !== null);
+  check('one each is fine', validateSides([['p1'], ['p2']], '1v1') === null);
+  check('doubles needs two on each side', validateSides([['p1', 'p2'], ['p3']], '2v2') !== null);
+  check('two each is fine', validateSides([['p1', 'p2'], ['p3', 'p4']], '2v2') === null);
+  check('nobody plays himself', validateSides([['p1'], ['p1']], '1v1') !== null);
+  check('nobody appears twice in a doubles match', validateSides([['p1', 'p2'], ['p2', 'p3']], '2v2') !== null);
+  check('an empty slot is caught', validateSides([['p1'], [null]], '1v1') !== null);
+  check('the side shape is validated as sides too',
+    validateSides([{ players: ['p1'] }, { players: ['p2'] }], '1v1') === null);
+  check('all vs all needs at least two', validateSides([['p1']], 'ffa') !== null);
+  check('all vs all rejects a repeat', validateSides([['p1'], ['p1'], ['p2']], 'ffa') !== null);
+  check('all vs all with three is fine', validateSides([['p1'], ['p2'], ['p3']], 'ffa') === null);
+
+  // swapping the two opponents around is just new sides
+  const match = s.matches[0];
+  const before = playersInMatch(match).join(',');
+  match.sides = [{ players: ['p1'], score: null }, { players: ['p5'], score: null }];
+  check('a match keeps whatever sides you give it', playersInMatch(match).join(',') === 'p1,p5');
+  check('and that is a different pairing than it started with', before !== 'p1,p5');
+
+  // a match added by hand
+  const added = createMatch(s, 's1');
+  check('a hand-added match lands on the right sport', added.sportId === 's1');
+  check('it is not a Pedro match', added.pedro === false);
+  check('it starts unplayed', !added.done && added.sides.every((x) => x.score === null));
+  check('it is a full match', validateSides(added.sides, '1v1') === null);
+
+  const given = createMatch(s, 's1', [['p2'], ['p6']]);
+  check('you can say exactly who plays', playersInMatch(given).join(',') === 'p2,p6');
+  let threw = false;
+  try { createMatch(s, 's1', [['p2'], ['p2']]); } catch { threw = true; }
+  check('an impossible match is refused', threw);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

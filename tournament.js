@@ -4,6 +4,7 @@
 export const DEFAULT_WIN_POINTS = 3;
 export const DRAW_POINTS = 1;
 export const LOSS_POINTS = 0;
+export const DEFAULT_NAME = 'Dad Championships';
 
 /** What a win can be worth. Chosen per sport, so a sport can carry more weight. */
 export const WIN_POINT_CHOICES = [1, 2, 3, 4, 5, 6, 8, 10, 15, 20, 25, 50];
@@ -26,7 +27,7 @@ export function generationLabel(id) {
  */
 export const FORMATS = [
   { id: '1v1', label: '1 v 1', note: 'Singles, one match each', min: 2 },
-  { id: '2v2', label: '2 v 2', note: 'Doubles, one match each', min: 4 },
+  { id: '2v2', label: '2 v 2', note: 'Doubles, one score per team', min: 4 },
   { id: 'ffa', label: 'All vs all', note: 'One round, everybody at once', min: 2 },
 ];
 
@@ -42,6 +43,11 @@ export function isFreeForAll(format) {
 /** How many players belong on one side of a match in this format. */
 export function teamSize(format) {
   return format === '2v2' ? 2 : 1;
+}
+
+/** How many players a full match of this format needs. */
+export function matchSize(format) {
+  return teamSize(format) * 2;
 }
 
 /** How points are handed out. Set per sport, not per championship. */
@@ -60,6 +66,31 @@ export function scoringSummary(sport) {
   if (sport.scoring === 'score') return 'Score counts';
   const points = sport.winPoints || DEFAULT_WIN_POINTS;
   return `Win = ${points}`;
+}
+
+/** What one side of a match is called, so a score is labelled correctly. */
+export function sideLabel(format) {
+  return format === '2v2' ? 'team' : 'player';
+}
+
+/* --------------------------------- logo ---------------------------------- */
+
+const SMALL_WORDS = ['the', 'of', 'and', 'og', 'de', 'la', 'a'];
+
+/**
+ * The monogram for the crest, taken from the championship's own name:
+ * "Hvejsel Family Cup" gives HFC, a single word gives its first two letters.
+ */
+export function championshipInitials(name) {
+  const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return 'DC';
+  if (words.length === 1) return [...words[0]].slice(0, 2).join('').toUpperCase();
+  const letters = words
+    .filter((w, i) => i === 0 || !SMALL_WORDS.includes(w.toLowerCase()))
+    .map((w) => [...w][0])
+    .join('')
+    .toUpperCase();
+  return (letters || 'DC').slice(0, 3);
 }
 
 /* --------------------------- the running order --------------------------- */
@@ -110,8 +141,8 @@ export function allPairs(ids) {
 
 /**
  * The rounds of a full round robin, by the circle method. One round gives every
- * player exactly one match (with an odd number, one player sits out), and the
- * rounds together cover every pairing exactly once.
+ * player exactly one match (with an odd number, one is left over for a Pedro
+ * match), and the rounds together cover every pairing exactly once.
  */
 export function singlesRounds(ids) {
   if (ids.length < 2) return [];
@@ -271,7 +302,7 @@ export function pairCoverage(state) {
   return { met: total - missing.length, total, missing };
 }
 
-/** In an odd field somebody has to sit a sport out. */
+/** Nobody should ever sit a sport out; if this is not empty, something is off. */
 export function playersSittingOut(state, sportId) {
   const playing = new Set();
   for (const match of matchesForSport(state.matches, sportId)) {
@@ -280,25 +311,145 @@ export function playersSittingOut(state, sportId) {
   return state.players.filter((p) => !playing.has(p.id));
 }
 
-function makeMatch(state, sportId, sides) {
+function makeMatch(state, sportId, sides, pedro = false) {
   state.nextMatchNo = (state.nextMatchNo || 0) + 1;
   return {
     id: `m${state.nextMatchNo}`,
     sportId,
     sides: sides.map((players) => ({ players: players.slice(), score: null })),
     done: false,
+    pedro,
   };
 }
 
+/* -------------------------------- Pedro ---------------------------------- */
+
+/** How many Pedro matches each player has been given so far. */
+function pedroAppearances(matches) {
+  const count = new Map();
+  for (const match of matches) {
+    if (!match.pedro) continue;
+    for (const id of playersInMatch(match)) count.set(id, (count.get(id) || 0) + 1);
+  }
+  return count;
+}
+
+function pickFillers(candidates, needed, appearances, rng) {
+  return candidates
+    .map((id) => ({ id, used: appearances.get(id) || 0, roll: rng() }))
+    .sort((a, b) => a.used - b.used || a.roll - b.roll)
+    .slice(0, needed)
+    .map((x) => x.id);
+}
+
 /**
- * The matches for one sport: the round that brings the most new pairings, so
- * the sports together work towards everyone having played everyone. Other
- * sports are left alone.
+ * Nobody sits a sport out. Whoever the round leaves over plays one extra match
+ * — a Pedro match — filled up with players drawn at random from those already
+ * playing, favouring whoever has had the fewest Pedro matches so far.
  */
-export function buildProgramme(state, sportId) {
+function pedroMatchesFor(state, sport, leftOut, playing, rng) {
+  const size = matchSize(sport.format);
+  const perSide = teamSize(sport.format);
+  const appearances = pedroAppearances(state.matches);
+  const out = [];
+  let waiting = leftOut.slice();
+
+  while (waiting.length) {
+    const chunk = waiting.slice(0, size);
+    waiting = waiting.slice(size);
+    const candidates = playing.filter((id) => !chunk.includes(id));
+    const fillers = pickFillers(candidates, size - chunk.length, appearances, rng);
+    if (chunk.length + fillers.length < size) break; // too few players for a match
+    const pool = [...chunk, ...fillers];
+    const sides = [pool.slice(0, perSide), pool.slice(perSide, size)];
+    for (const id of pool) appearances.set(id, (appearances.get(id) || 0) + 1);
+    out.push(makeMatch(state, sport.id, sides, true));
+  }
+  return out;
+}
+
+/** Every Pedro match in the championship. */
+export function pedroMatches(matches) {
+  return matches.filter((m) => m.pedro);
+}
+
+/**
+ * Where Pedro stands. The points from Pedro matches are held back until every
+ * player has actually played one — and only count at all if you say they do.
+ */
+export function pedroStatus(state) {
+  const list = pedroMatches(state.matches);
+  const playedIds = new Set(list.filter((m) => m.done).flatMap(playersInMatch));
+  const waiting = state.players.filter((p) => !playedIds.has(p.id));
+  const counts = state.pedroCounts !== false;
+  const complete = list.length > 0 && waiting.length === 0;
+  return {
+    matches: list,
+    total: list.length,
+    done: list.filter((m) => m.done).length,
+    playedCount: state.players.length - waiting.length,
+    waiting,
+    complete,
+    counts,
+    live: counts && complete,
+  };
+}
+
+/* --------------------------- editing a match ----------------------------- */
+
+/** A match is only playable with full, non-overlapping sides. */
+export function validateSides(sides, format) {
+  const lists = sides.map((side) => (Array.isArray(side) ? side : side.players));
+  const ids = lists.flat();
+
+  if (isFreeForAll(format)) {
+    if (ids.length < 2) return 'At least two players have to be in the round.';
+    if (new Set(ids).size !== ids.length) return 'A player can only be in the round once.';
+    return null;
+  }
+  const size = teamSize(format);
+  if (lists.length !== 2) return 'A match has two sides.';
+  if (lists.some((list) => list.length !== size || list.some((id) => !id))) {
+    return size === 1 ? 'Pick one player on each side.' : 'Pick two players on each side.';
+  }
+  if (new Set(ids).size !== ids.length) return 'Nobody can play against himself.';
+  return null;
+}
+
+/** A match added by hand: the first players who have not met yet. */
+export function createMatch(state, sportId, sides = null, pedro = false) {
+  const sport = state.sports.find((s) => s.id === sportId);
+  const format = sport ? sport.format : '1v1';
+  let chosen = sides;
+
+  if (!chosen) {
+    const ids = state.players.map((p) => p.id);
+    if (isFreeForAll(format)) {
+      chosen = ids.map((id) => [id]);
+    } else {
+      const met = metPairsIn(state.matches);
+      const fresh = allPairs(ids).find(([a, b]) => !met.has(pairKey(a, b)));
+      const order = fresh ? [...fresh, ...ids.filter((id) => !fresh.includes(id))] : ids;
+      const size = matchSize(format);
+      const perSide = teamSize(format);
+      const pool = order.slice(0, size);
+      chosen = [pool.slice(0, perSide), pool.slice(perSide, size)];
+    }
+  }
+  const error = validateSides(chosen, format);
+  if (error) throw new Error(error);
+  return makeMatch(state, sportId, chosen, pedro);
+}
+
+/**
+ * The matches for one sport: the round that brings the most new pairings, plus
+ * a Pedro match for whoever the round leaves over. Other sports are untouched.
+ */
+export function buildProgramme(state, sportId, rng = Math.random) {
   const sport = state.sports.find((s) => s.id === sportId);
   if (!sport) return [];
-  const rounds = roundsFor(state.players.map((p) => p.id), sport.format);
+  const ids = state.players.map((p) => p.id);
+  const rounds = roundsFor(ids, sport.format);
   if (!rounds.length) return [];
 
   const met = metPairsIn(state.matches, sportId);
@@ -312,24 +463,46 @@ export function buildProgramme(state, sportId) {
     }
   });
 
-  return rounds[bestIndex].map((sides) => makeMatch(state, sportId, sides));
+  const round = rounds[bestIndex];
+  const matches = round.map((sides) => makeMatch(state, sportId, sides));
+  const playing = round.flat(2);
+  const leftOut = ids.filter((id) => !playing.includes(id));
+  if (leftOut.length) {
+    // The state the Pedro pick reads has to include the matches just drawn.
+    const draft = { ...state, matches: [...state.matches, ...matches] };
+    matches.push(...pedroMatchesFor(draft, sport, leftOut, playing, rng));
+    state.nextMatchNo = draft.nextMatchNo;
+  }
+  return matches;
 }
 
 /** The whole championship, every sport, from scratch and in the order added. */
-export function buildAllProgrammes(state) {
+export function buildAllProgrammes(state, rng = Math.random) {
   state.nextMatchNo = 0;
   state.matches = [];
   for (const sport of sportsByOrder(state.sports)) {
-    state.matches.push(...buildProgramme(state, sport.id));
+    state.matches.push(...buildProgramme(state, sport.id, rng));
   }
   return state.matches;
 }
 
-/** How many matches one sport holds — one per player, two players per match. */
+/** How many matches one sport holds, Pedro match included. */
 export function matchesPerSport(playerCount, format) {
   const ids = Array.from({ length: playerCount }, (_, i) => `p${i + 1}`);
   const rounds = roundsFor(ids, format);
-  return rounds.length ? rounds[0].length : 0;
+  if (!rounds.length) return 0;
+  const playing = rounds[0].flat(2).length;
+  const leftOver = playerCount - playing;
+  return rounds[0].length + (leftOver > 0 ? Math.ceil(leftOver / matchSize(format)) : 0);
+}
+
+/** Whether this game type leaves somebody over, who then gets a Pedro match. */
+export function pedroNeeded(playerCount, format) {
+  if (format === 'ffa') return false;
+  const ids = Array.from({ length: playerCount }, (_, i) => `p${i + 1}`);
+  const rounds = roundsFor(ids, format);
+  if (!rounds.length) return false;
+  return rounds[0].flat(2).length < playerCount;
 }
 
 /** How many sports of this game type it takes before everyone has met everyone. */
@@ -365,8 +538,14 @@ export function winningSide(match) {
  * Standings for the whole championship, or for one sport when sportId is given.
  * Each sport carries its own point type: 'match' gives the winner the points
  * that sport is worth, 'score' counts every point a player put on the board.
+ *
+ * Pedro matches are only counted once everybody has played one, and only if
+ * Pedro points are set to count. Pass pedro: 'only' for the Pedro board itself.
  */
-export function standings(state, sportId = null) {
+export function standings(state, sportId = null, opts = {}) {
+  const mode = opts.pedro || 'auto';
+  const live = pedroStatus(state).live;
+
   const rows = new Map(
     state.players.map((p) => [
       p.id,
@@ -389,6 +568,11 @@ export function standings(state, sportId = null) {
   for (const match of state.matches) {
     if (!match.done) continue;
     if (sportId && match.sportId !== sportId) continue;
+    if (match.pedro) {
+      if (mode === 'exclude') continue;
+      if (mode === 'auto' && !live) continue;
+    } else if (mode === 'only') continue;
+
     const sport = state.sports.find((s) => s.id === match.sportId);
     const scoring = (sport && sport.scoring) || 'match';
     const winPoints = (sport && sport.winPoints) || DEFAULT_WIN_POINTS;
@@ -424,6 +608,11 @@ export function standings(state, sportId = null) {
   );
 }
 
+/** The Pedro board: what the Pedro matches alone are worth to each player. */
+export function pedroStandings(state) {
+  return standings(state, null, { pedro: 'only' });
+}
+
 /** The next match still to be played, following the running order. */
 export function nextUnplayed(state) {
   return orderedMatches(state).find((m) => !m.done) || null;
@@ -436,7 +625,7 @@ export function progress(matches) {
 
 /* ------------------------------- storage -------------------------------- */
 
-export const STATE_VERSION = 4;
+export const STATE_VERSION = 5;
 
 /**
  * Bring a championship saved by an older version of the app up to date, in
@@ -470,12 +659,15 @@ export function migrateState(saved) {
       sportId: match.sportId,
       sides,
       done: Boolean(match.done),
+      pedro: Boolean(match.pedro),
     };
   });
 
   return {
     version: STATE_VERSION,
+    name: saved.name || DEFAULT_NAME,
     createdAt: saved.createdAt || null,
+    pedroCounts: saved.pedroCounts !== false,
     players: saved.players.map((p, i) => ({
       id: p.id || `p${i + 1}`,
       name: p.name || `Player ${i + 1}`,

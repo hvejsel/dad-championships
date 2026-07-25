@@ -91,14 +91,27 @@ body { min-height: 100dvh; }
 }
 .topbar.scrolled { border-bottom-color: var(--chalk); }
 
-.topbar-title { min-width: 0; }
-.topbar h1 {
+/* the crest and the championship's own name */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  flex: 1;
+}
+.brand .crest { flex: none; filter: drop-shadow(0 2px 5px rgba(20, 60, 120, .22)); }
+.brand-text { min-width: 0; }
+.brand h1 {
   margin: 0;
-  font-size: 30px;
+  font-size: 27px;
   font-weight: 700;
   letter-spacing: -0.7px;
-  line-height: 1.12;
+  line-height: 1.1;
 }
+.brand h1.small { font-size: 22px; letter-spacing: -0.5px; }
+.brand h1.tiny { font-size: 18.5px; letter-spacing: -0.3px; }
+#btn-back { margin-right: 2px; }
+#btn-back svg { width: 17px; height: 17px; }
 .sub {
   margin: 3px 0 0;
   font-size: 13.5px;
@@ -216,6 +229,28 @@ h2 {
   border-radius: 9px;
 }
 .sel select:focus-visible { outline: 2px solid var(--court); outline-offset: 0; }
+
+/* the name the crest is drawn from, with the crest beside it */
+.crest-field {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--card);
+  border-radius: var(--r-card);
+  box-shadow: var(--lift);
+  padding: 12px 16px;
+  margin-bottom: 20px;
+}
+.crest-field .crest { flex: none; filter: drop-shadow(0 3px 7px rgba(20, 60, 120, .25)); }
+.crest-field input[type="text"] {
+  padding: 0;
+  min-height: 44px;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+  background: none;
+}
+.crest-field input:focus { outline-offset: 2px; border-radius: 6px; }
 
 /* the headline choice of a step: how many players, how many sports */
 .count-field { margin: 10px 0 24px; }
@@ -721,6 +756,127 @@ button { font-family: inherit; }
 .add-match:active { background: var(--card-sunk); }
 .add-match span { font-weight: 400; margin-right: 2px; }
 
+/* ---------------------------- the sports list ---------------------------- */
+
+.list-label { margin-top: 22px; }
+.sport-list {
+  background: var(--card);
+  border-radius: var(--r-card);
+  box-shadow: var(--lift);
+  overflow: hidden;
+}
+.sport-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: var(--ink);
+  padding: 13px 14px 13px 16px;
+  min-height: 62px;
+  cursor: pointer;
+  transition: background .12s;
+}
+.sport-link + .sport-link { border-top: 1px solid var(--chalk-soft); }
+.sport-link:active { background: var(--card-sunk); }
+.sl-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.sl-name { font-size: 17px; font-weight: 700; letter-spacing: -0.35px; }
+.sl-meta { font-size: 12.5px; color: var(--ink-soft); }
+.sl-right { display: grid; gap: 3px; justify-items: end; flex: none; }
+.sl-time {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-faint);
+  background: rgba(58, 52, 42, 0.07);
+  border-radius: 7px;
+  padding: 2px 7px;
+  font-variant-numeric: tabular-nums;
+}
+.sl-time.set { background: var(--court-wash); color: var(--court-deep); }
+.sl-count { font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.chev {
+  flex: none;
+  width: 7px; height: 7px;
+  border-right: 2px solid var(--ink-faint);
+  border-top: 2px solid var(--ink-faint);
+  transform: rotate(45deg);
+  margin-left: 2px;
+}
+
+/* --------------------------- one sport's own page ------------------------ */
+
+.sport-page-head { margin: 10px 0 24px; }
+.sport-page-head h2 { margin: 0 0 3px; font-size: 27px; letter-spacing: -0.6px; }
+.sport-page-head .meta {
+  margin: 0 0 16px;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+.two-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* --------------------------------- Pedro -------------------------------- */
+
+.pedro-badge {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: var(--brass-ink);
+  background: var(--brass-wash);
+  border-radius: 5px;
+  padding: 2px 5px;
+  vertical-align: 2px;
+}
+.pedro-status {
+  background: var(--card);
+  border-radius: var(--r-card);
+  box-shadow: var(--lift);
+  padding: 16px 18px;
+  margin: 12px 0 22px;
+  border-left: 3px solid var(--brass);
+}
+.pedro-status.live { border-left-color: var(--grass); }
+.pedro-status .label {
+  display: block;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--brass-ink);
+  margin-bottom: 5px;
+}
+.pedro-status.live .label { color: var(--grass); }
+.pedro-status p { margin: 0 0 6px; font-size: 14.5px; line-height: 1.45; }
+.pedro-status .eyebrow { margin: 0; }
+
+.pedro-match { border-top: 1px solid var(--chalk-soft); }
+.pedro-match:first-child { border-top: 0; }
+.pm-sport {
+  display: block;
+  padding: 10px 16px 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.pedro-match .fixture { border-top: 0; }
+
+/* ----------------------------- match editor ----------------------------- */
+
+.editor-side { margin-bottom: 4px; }
+.editor-side .eyebrow { margin-bottom: 8px; }
+.sel-player { margin-bottom: 8px; }
+.editor-side .score-control { margin-top: 12px; }
+#match-body .net { margin: 16px 0; }
+.ffa-row.out { opacity: .45; }
+.ffa-row.out .score-control { pointer-events: none; }
+
 /* ------------------ the field that is still to be covered ---------------- */
 
 /* who has not met whom yet — the reason to add another sport */
@@ -728,8 +884,9 @@ button { font-family: inherit; }
 .cover-line.met { color: var(--grass); font-weight: 600; }
 
 /* an odd field means somebody has to sit a sport out */
+.sitting-out.warn { color: var(--clay); font-weight: 600; }
 .sitting-out {
-  margin: 9px 4px 0;
+  margin: 14px 4px 0;
   font-size: 13px;
   color: var(--ink-soft);
   line-height: 1.45;
@@ -1040,6 +1197,7 @@ button { font-family: inherit; }
 .fixture .who .and { color: var(--ink-faint); font-weight: 400; }
 /* one all-vs-all round lists everybody on a single line */
 .fixture.ffa .who { font-size: 14.5px; }
+.fixture.ffa .who b { font-variant-numeric: tabular-nums; }
 .fixture.ffa .res { font-weight: 600; }
 .fixture .res {
   font-variant-numeric: tabular-nums;

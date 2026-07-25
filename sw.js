@@ -1,5 +1,5 @@
 // Cache the whole app so a championship keeps running with no signal at the pitch.
-const CACHE = 'dad-champs-v5';
+const CACHE = 'dad-champs-v6';
 const ASSETS = [
   './',
   'index.html',
