@@ -38,6 +38,9 @@
     <!-- ============================ SETUP ============================ -->
     <section id="view-setup" class="view">
 
+      <!-- shown only when there is already a championship to go back to -->
+      <button class="ghost wide back-to-saved" id="btn-setup-back" hidden>Back to the championships you have saved</button>
+
       <ol class="stepper" id="stepper">
         <li data-step="1" class="active"><span>1</span>Family</li>
         <li data-step="2"><span>2</span>Sports</li>
@@ -209,17 +212,44 @@
   </div>
 </div>
 
+<!-- every championship this phone has kept, so a new one never costs you the last -->
+<div id="champs-sheet" class="sheet" hidden>
+  <div class="sheet-card">
+    <div class="grabber"></div>
+    <h2>Your championships</h2>
+    <p class="hint">Every championship stays on this phone until you delete it. Tap one to carry on with it.</p>
+    <div id="champs-list" class="champs-list"></div>
+    <button class="primary wide" id="champs-new">Start a new championship</button>
+    <button class="ghost wide" id="champs-close">Close</button>
+  </div>
+</div>
+
 <!-- menu -->
 <div id="menu" class="sheet" hidden>
   <div class="sheet-card">
     <div class="grabber"></div>
     <h2>Championship</h2>
+    <button class="ghost wide" id="menu-champs">Your championships</button>
     <button class="ghost wide" id="menu-rename">Name and crest</button>
     <button class="ghost wide" id="menu-share">Share the table</button>
     <button class="ghost wide" id="menu-reset">Clear all results</button>
     <button class="ghost wide" id="menu-rebuild">Draw up a new programme</button>
-    <button class="danger wide" id="menu-new">Start a new championship</button>
+    <button class="ghost wide" id="menu-new">Start another championship</button>
+    <button class="danger wide" id="menu-delete">Delete this championship</button>
     <button class="ghost wide" id="menu-close">Close</button>
+  </div>
+</div>
+
+<!-- yes/no asked inside the app: a phone-installed web app cannot show the browser's own -->
+<div id="confirm-sheet" class="sheet on-top" hidden>
+  <div class="sheet-card">
+    <div class="grabber"></div>
+    <h2 id="confirm-title">Are you sure?</h2>
+    <p class="hint" id="confirm-body"></p>
+    <div class="row-btns">
+      <button class="ghost" id="confirm-no">Cancel</button>
+      <button class="primary" id="confirm-yes">Yes</button>
+    </div>
   </div>
 </div>
 

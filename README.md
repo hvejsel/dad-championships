@@ -74,12 +74,35 @@ its matches.
 Picking a player who is already in the match swaps the two around, which is how
 you rearrange opponents without emptying the match first.
 
-## Storage
+## Storage — a library, not one championship
 
 Everything is kept on the phone that keeps score, in that browser's local
 storage — so it survives a refresh, a restart and a day with no signal, and
-never leaves the phone. On load the store is migrated in place, which means an
-app update takes over a running championship instead of losing it.
+never leaves the phone.
+
+The phone keeps a *library* of championships under one key,
+`dadchamps.library.v1`: every championship it has ever held, plus which one is
+open. Starting this year's does not cost you last year's. "Your championships"
+in the menu lists them newest-touched first, switches between them, and deletes
+one at a time. On load the store is migrated in place — a championship saved by
+the one-at-a-time version of the app becomes the first entry in the library
+rather than being lost.
+
+## Made for a thumb
+
+The app is used one-handed, standing up, on a phone. Three rules follow from
+that, and `test-mobile.mjs` holds each of them:
+
+- **No browser dialogs.** A web app added to the home screen is not always
+  shown `confirm()`, so every button behind one looks dead. The app asks its
+  own yes/no question in a sheet instead.
+- **Every sheet pulls closed.** A sheet closes from the Cancel button, from a
+  tap on the dimmed area behind it, and from a pull down on the sheet itself —
+  which follows the finger and springs back if you let go too early. A sheet
+  that scrolls is pulled from its handle or its heading, so the two gestures
+  never fight.
+- **Nothing under 44px, nothing covering a button.** That is the size a thumb
+  hits reliably, and the toast never swallows a tap meant for what is under it.
 
 ## Design
 
@@ -104,6 +127,7 @@ that keeps score, so it works with no signal and survives a refresh.
 ```sh
 python3 -m http.server 8000   # then open http://localhost:8000
 node test.mjs                 # engine tests
+node test-mobile.mjs          # mobile tests (needs playwright + webkit)
 node tools/gen-icons.mjs      # regenerate the app icons
 ```
 
@@ -116,4 +140,5 @@ Add it to your home screen and it opens full screen like a normal app.
 | `tournament.js` | The programme and the standings — pure functions, no DOM |
 | `app.js` | Screens, the crest, state and storage |
 | `test.mjs` | Engine tests |
+| `test-mobile.mjs` | Mobile tests — taps, sheets, the library |
 | `sw.js` | Offline cache |

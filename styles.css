@@ -119,8 +119,10 @@ body { min-height: 100dvh; }
   font-variant-numeric: tabular-nums;
 }
 
+/* 44px is the smallest a thumb hits reliably; the disc is drawn smaller than
+   the button so the back arrow and the menu keep their light look. */
 .icon-btn {
-  width: 36px; height: 36px;
+  width: 44px; height: 44px;
   border-radius: 50%;
   border: 0;
   background: rgba(58, 52, 42, 0.06);
@@ -129,7 +131,9 @@ body { min-height: 100dvh; }
   place-items: center;
   flex: none;
   cursor: pointer;
-  margin-top: 4px;
+  margin-top: 0;
+  background-clip: content-box;
+  padding: 4px;
   transition: background .15s var(--ease);
 }
 .icon-btn:active { background: rgba(58, 52, 42, 0.12); }
@@ -387,6 +391,12 @@ button { font-family: inherit; }
 .danger { background: var(--card); color: var(--clay); box-shadow: var(--lift); }
 .danger:active { background: var(--card-sunk); }
 .wide { margin-top: 10px; }
+
+/* In a yes/no question the destructive answer is the filled one, so the two
+   answers can never be mistaken for each other. */
+#confirm-sheet .danger { background: var(--clay); color: #fff; }
+#confirm-sheet .danger:active { background: #9a3a26; transform: scale(0.985); }
+#confirm-sheet .hint { margin-bottom: 4px; }
 .row-btns { display: flex; gap: 10px; margin-top: 4px; }
 .row-btns .ghost { flex: 0 0 33%; }
 
@@ -922,7 +932,8 @@ button { font-family: inherit; }
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  padding: 8px 2px;
+  padding: 0 10px;
+  min-height: 44px; /* a thumb needs 44px; anything less reads as a dead button */
   flex: none;
 }
 
@@ -1255,16 +1266,19 @@ button { font-family: inherit; }
 /* ================================= SHEETS ================================ */
 
 .sheet {
+  --veil: 1;
   position: fixed;
   inset: 0;
   z-index: 20;
-  background: rgba(26, 24, 21, 0.32);
+  background: rgba(26, 24, 21, calc(0.32 * var(--veil)));
   display: flex;
   align-items: flex-end;
   justify-content: center;
   animation: veil .2s var(--ease);
   backdrop-filter: blur(2px);
 }
+/* a yes/no question asked while another sheet is open sits above it */
+.sheet.on-top { z-index: 30; }
 @keyframes veil { from { opacity: 0; } }
 
 .sheet-card {
@@ -1273,20 +1287,38 @@ button { font-family: inherit; }
   background: var(--paper);
   border-top-left-radius: var(--r-sheet);
   border-top-right-radius: var(--r-sheet);
-  padding: 10px 20px calc(env(safe-area-inset-bottom) + 22px);
+  padding: 4px 20px calc(env(safe-area-inset-bottom) + 22px);
   box-shadow: var(--lift-high);
   animation: rise .28s var(--ease);
   max-height: 92dvh;
   overflow-y: auto;
+  /* a pull straight down closes the sheet, so the pull must not scroll the
+     page behind it while the sheet is following the finger */
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  will-change: transform;
 }
+.sheet-card.dragging { touch-action: none; }
 @keyframes rise { from { transform: translateY(100%); } }
 
+/* the handle you pull down on — a thumb-sized target around a small bar */
 .grabber {
-  width: 36px; height: 5px;
-  border-radius: 99px;
-  background: rgba(58, 52, 42, 0.2);
-  margin: 0 auto 14px;
+  height: 22px;
+  margin: 0 -20px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  cursor: grab;
 }
+.grabber::before {
+  content: "";
+  width: 40px; height: 5px;
+  border-radius: 99px;
+  background: rgba(58, 52, 42, 0.22);
+}
+/* the whole top of a sheet is the pull handle, not just the bar */
+.sheet-card h2, .sheet-card .sheet-sport { touch-action: none; }
 .sheet-card h2 { margin: 2px 0 16px; }
 
 .sheet-sport {
@@ -1307,7 +1339,81 @@ button { font-family: inherit; }
   padding: 22px 18px;
 }
 
+/* ====================== EVERY CHAMPIONSHIP KEPT ========================== */
+/* One row per championship the phone has kept: crest, what is in it, and how
+   far it got. The open one is marked, so switching is never a guess.        */
+
+.champs-list {
+  background: var(--card);
+  border-radius: var(--r-card);
+  box-shadow: var(--lift);
+  overflow: hidden;
+  margin-bottom: 18px;
+}
+.champ-row {
+  display: flex;
+  align-items: stretch;
+}
+.champ-row + .champ-row { border-top: 1px solid var(--chalk-soft); }
+.champ-row.open { background: var(--court-wash); }
+
+.champ-open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-family: inherit;
+  color: var(--ink);
+  padding: 12px 4px 12px 14px;
+  min-height: var(--tap);
+  cursor: pointer;
+}
+.champ-open:active { background: var(--card-sunk); }
+.champ-open .crest { flex: none; }
+.champ-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.champ-name {
+  font-size: 16.5px;
+  font-weight: 700;
+  letter-spacing: -0.35px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.champ-meta { font-size: 12.5px; color: var(--ink-soft); }
+.champ-state {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.champ-row.open .champ-state { color: var(--court); }
+
+.champ-del {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--ink-faint);
+  width: var(--tap);
+  min-height: var(--tap);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.champ-del svg { width: 20px; height: 20px; }
+.champ-del:active { color: var(--clay); background: var(--card-sunk); }
+
+.back-to-saved { margin-bottom: 18px; }
+
+/* The toast sits above everything, so it must never swallow a tap meant for
+   the button underneath it. */
 .toast {
+  pointer-events: none;
   position: fixed;
   left: 50%;
   bottom: calc(env(safe-area-inset-bottom) + 84px);

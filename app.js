@@ -33,8 +33,8 @@ import {
   STATE_VERSION,
 } from './tournament.js';
 
-const STATE_KEY = 'dadchamps.state.v3';
-const LEGACY_STATE_KEYS = ['dadchamps.state.v2'];
+const LIBRARY_KEY = 'dadchamps.library.v1';
+const LEGACY_STATE_KEYS = ['dadchamps.state.v3', 'dadchamps.state.v2'];
 const DRAFT_KEY = 'dadchamps.draft.v3';
 
 const SPORT_SUGGESTIONS = [
@@ -54,8 +54,10 @@ const $$ = (sel) => [...document.querySelectorAll(sel)];
 
 /* ----------------------------- persistence ----------------------------- */
 /* Everything lives on the phone that keeps score: it survives a refresh, a
-   restart and a day with no signal. The store is migrated in place on load, so
-   an app update never costs you a running championship.                     */
+   restart and a day with no signal. The phone keeps a library rather than a
+   single championship, so last summer's is still there when you start this
+   year's. The store is migrated in place on load, so an app update never
+   costs you a running championship.                                         */
 
 function load(key, fallback) {
   try {
@@ -74,23 +76,47 @@ function save(key, value) {
   }
 }
 
-function loadChampionship() {
-  let saved = load(STATE_KEY, null);
-  if (!saved) {
-    // a championship saved by an older version of the app is taken over
-    for (const key of LEGACY_STATE_KEYS) {
-      saved = load(key, null);
-      if (saved) break;
+function newChampionshipId() {
+  return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/**
+ * The library: every championship this phone has kept, newest touched first,
+ * and which one is open. A championship saved by a one-at-a-time version of
+ * the app is taken over as the first entry.
+ */
+function loadLibrary() {
+  const saved = load(LIBRARY_KEY, null);
+  const list = [];
+
+  if (saved && Array.isArray(saved.championships)) {
+    for (const entry of saved.championships) {
+      const migrated = migrateState(entry);
+      if (!migrated) continue;
+      migrated.id = entry.id || newChampionshipId();
+      migrated.updatedAt = entry.updatedAt || migrated.createdAt || null;
+      list.push(migrated);
     }
+    return { version: 1, currentId: saved.currentId || (list[0] && list[0].id) || null, championships: list };
   }
-  const migrated = migrateState(saved);
-  if (migrated && (!saved || saved.version !== STATE_VERSION)) save(STATE_KEY, migrated);
-  return migrated;
+
+  for (const key of LEGACY_STATE_KEYS) {
+    const migrated = migrateState(load(key, null));
+    if (!migrated) continue;
+    migrated.id = newChampionshipId();
+    migrated.updatedAt = migrated.createdAt || null;
+    list.push(migrated);
+    break;
+  }
+  const library = { version: 1, currentId: list.length ? list[0].id : null, championships: list };
+  if (list.length) save(LIBRARY_KEY, library);
+  return library;
 }
 
 /* -------------------------------- state -------------------------------- */
 
-let state = loadChampionship();
+let library = loadLibrary();
+let state = library.championships.find((c) => c.id === library.currentId) || null;
 
 let draft = load(DRAFT_KEY, null) || {
   step: 1,
@@ -113,7 +139,18 @@ let editingSportId = null;
 let editing = null; // the match being edited
 let newSport = null; // the sport being added mid-championship
 
-const saveState = () => save(STATE_KEY, state);
+const saveLibrary = () => save(LIBRARY_KEY, library);
+
+/** Every write to the open championship goes through here, so the library
+    always holds it and the list stays in "last touched first" order.        */
+function saveState() {
+  if (!state) return saveLibrary();
+  state.updatedAt = new Date().toISOString();
+  library.championships = [state, ...library.championships.filter((c) => c.id !== state.id)];
+  library.currentId = state.id;
+  saveLibrary();
+}
+
 const saveDraft = () => save(DRAFT_KEY, draft);
 
 /* ------------------------------- helpers ------------------------------- */
@@ -252,6 +289,32 @@ function toast(message) {
   el.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { el.hidden = true; }, 2200);
+}
+
+/* ============================ ASKING YES OR NO ========================== */
+/* The browser's own confirm box is not shown at all in a web app that has
+   been added to the home screen, which silently killed every button behind
+   one. The app asks for itself instead, in the same sheet as everything else. */
+
+let confirmResolve = null;
+
+function ask(title, { body = '', yes = 'Yes', danger = false } = {}) {
+  $('#confirm-title').textContent = title;
+  $('#confirm-body').textContent = body;
+  $('#confirm-body').hidden = !body;
+  const yesBtn = $('#confirm-yes');
+  yesBtn.textContent = yes;
+  yesBtn.classList.toggle('danger', danger);
+  yesBtn.classList.toggle('primary', !danger);
+  $('#confirm-sheet').hidden = false;
+
+  return new Promise((resolve) => {
+    confirmResolve = (answer) => {
+      confirmResolve = null;
+      $('#confirm-sheet').hidden = true;
+      resolve(answer);
+    };
+  });
 }
 
 /* ================================ SETUP ================================ */
@@ -438,8 +501,10 @@ function createChampionship() {
 
   state = {
     version: STATE_VERSION,
+    id: newChampionshipId(),
     name: (draft.name || '').trim() || DEFAULT_NAME,
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     pedroCounts: true,
     players,
     sports,
@@ -448,6 +513,8 @@ function createChampionship() {
   };
   buildAllProgrammes(state);
 
+  library.championships.unshift(state);
+  library.currentId = state.id;
   saveState();
   view = 'sports';
   openSportId = null;
@@ -884,7 +951,7 @@ function openSportSheet(sportId) {
   $('#sport-sheet').hidden = false;
 }
 
-function saveSportSheet() {
+async function saveSportSheet() {
   const sport = sportOf(editingSportId);
   const name = $('#sport-name').value.trim() || sport.name;
   const time = $('#sport-time').value || null;
@@ -899,12 +966,17 @@ function saveSportSheet() {
       return;
     }
     const finished = matchesForSport(state.matches, sport.id).filter((m) => m.done).length;
-    const question = finished
-      ? `Change ${sport.name} to ${formatLabel(format)}? New matches are drawn for this sport and the ${finished} ${
+    const body = finished
+      ? `New matches are drawn for ${sport.name}, and the ${finished} ${
           finished === 1 ? 'result' : 'results'
-        } already entered for it are lost.`
-      : `Change ${sport.name} to ${formatLabel(format)}? New matches are drawn for this sport.`;
-    if (!confirm(question)) return;
+        } already entered for it are lost. Every other sport keeps its matches.`
+      : `New matches are drawn for ${sport.name}. Every other sport keeps its matches.`;
+    const go = await ask(`Change ${sport.name} to ${formatLabel(format)}?`, {
+      body,
+      yes: 'Change it',
+      danger: finished > 0,
+    });
+    if (!go) return;
 
     sport.format = format;
     state.matches = state.matches.filter((m) => m.sportId !== sport.id);
@@ -922,9 +994,14 @@ function saveSportSheet() {
   toast('Sport updated');
 }
 
-function deleteSport() {
+async function deleteSport() {
   const sport = sportOf(editingSportId);
-  if (!confirm(`Delete ${sport.name} and its matches?`)) return;
+  const go = await ask(`Delete ${sport.name}?`, {
+    body: 'The sport and all its matches go with it.',
+    yes: 'Delete it',
+    danger: true,
+  });
+  if (!go) return;
   state.sports = state.sports.filter((s) => s.id !== sport.id);
   state.matches = state.matches.filter((m) => m.sportId !== sport.id);
   if (tableFilter === sport.id) tableFilter = 'all';
@@ -1262,6 +1339,124 @@ async function share() {
   }
 }
 
+/* ========================= EVERY CHAMPIONSHIP KEPT ====================== */
+/* The phone keeps a library, not one championship. Starting this year's does
+   not cost you last year's, and you switch between them from the menu.      */
+
+function championshipSummary(champ) {
+  const done = champ.matches.filter((m) => m.done).length;
+  const total = champ.matches.length;
+  const when = champ.updatedAt || champ.createdAt;
+  const day = when
+    ? new Date(when).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+    : '';
+  const players = `${champ.players.length} ${champ.players.length === 1 ? 'player' : 'players'}`;
+  const sports = `${champ.sports.length} ${champ.sports.length === 1 ? 'sport' : 'sports'}`;
+  return {
+    done,
+    total,
+    day,
+    line: `${players} · ${sports} · ${done} of ${total} played`,
+    finished: total > 0 && done === total,
+  };
+}
+
+function renderChampsList() {
+  const list = $('#champs-list');
+  if (!library.championships.length) {
+    list.innerHTML = '<p class="empty">Nothing saved yet.</p>';
+    return;
+  }
+
+  list.innerHTML = library.championships
+    .map((champ, i) => {
+      const s = championshipSummary(champ);
+      const open = champ.id === library.currentId && Boolean(state);
+      return `
+        <div class="champ-row ${open ? 'open' : ''}">
+          <button class="champ-open" data-champ="${escapeHtml(champ.id)}">
+            ${crestSvg(champ.name, 40, `lib${i}`)}
+            <span class="champ-text">
+              <span class="champ-name">${escapeHtml(champ.name)}</span>
+              <span class="champ-meta">${escapeHtml(s.line)}${s.day ? ` · ${escapeHtml(s.day)}` : ''}</span>
+            </span>
+            <span class="champ-state">${open ? 'Open' : s.finished ? 'Done' : 'Saved'}</span>
+          </button>
+          <button class="champ-del" data-champ-del="${escapeHtml(champ.id)}" aria-label="Delete ${escapeHtml(champ.name)}">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+              <path d="M4 6h12M8 6V4.5h4V6M6.5 6l.7 9.5h5.6L13.5 6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>`;
+    })
+    .join('');
+
+  $$('#champs-list .champ-open').forEach((btn) => {
+    btn.onclick = () => switchChampionship(btn.dataset.champ);
+  });
+  $$('#champs-list .champ-del').forEach((btn) => {
+    btn.onclick = () => deleteChampionship(btn.dataset.champDel);
+  });
+}
+
+function openChampsSheet() {
+  renderChampsList();
+  $('#champs-sheet').hidden = false;
+}
+
+function switchChampionship(id) {
+  const champ = library.championships.find((c) => c.id === id);
+  if (!champ) return;
+  state = champ;
+  library.currentId = id;
+  saveLibrary();
+  $('#champs-sheet').hidden = true;
+  view = 'sports';
+  openSportId = null;
+  tableFilter = 'all';
+  render();
+  window.scrollTo({ top: 0 });
+  toast(`${champ.name} opened`);
+}
+
+/** Leave the current one on the phone and set up a new one beside it. */
+function startAnotherChampionship() {
+  $('#champs-sheet').hidden = true;
+  state = null;
+  library.currentId = null;
+  saveLibrary();
+  draft.step = 1;
+  saveDraft();
+  render();
+  window.scrollTo({ top: 0 });
+}
+
+async function deleteChampionship(id) {
+  const champ = library.championships.find((c) => c.id === id);
+  if (!champ) return;
+  const s = championshipSummary(champ);
+  const go = await ask(`Delete ${champ.name}?`, {
+    body: `${s.line}. Once it is gone it cannot be brought back.`,
+    yes: 'Delete it',
+    danger: true,
+  });
+  if (!go) return;
+
+  library.championships = library.championships.filter((c) => c.id !== id);
+  if (library.currentId === id) {
+    const next = library.championships[0] || null;
+    state = next;
+    library.currentId = next ? next.id : null;
+    view = 'sports';
+    openSportId = null;
+    tableFilter = 'all';
+  }
+  saveLibrary();
+  if (!$('#champs-sheet').hidden) renderChampsList();
+  render();
+  toast(`${champ.name} deleted`);
+}
+
 /* ================================ RENDER ================================ */
 
 function render() {
@@ -1281,6 +1476,8 @@ function render() {
   renderBrand();
 
   if (setupMode) {
+    // a way back to what is already saved, so setup is never a dead end
+    $('#btn-setup-back').hidden = library.championships.length === 0;
     renderSetup();
     return;
   }
@@ -1476,8 +1673,120 @@ $('#btn-back').onclick = () => {
   window.scrollTo({ top: 0 });
 };
 
+/* ---------------------- a sheet you can pull closed --------------------- */
+/* Every sheet closes three ways: the Cancel button, a tap on the dimmed area
+   behind it, and — the one a thumb reaches for — a pull down on the sheet
+   itself. The pull follows the finger and the sheet springs back if you let
+   go too early, so a half-pull is never a surprise.                         */
+
+const PULL_TO_CLOSE = 96; // how far down before letting go closes it
+const FLICK = 0.55; // px per ms — a quick flick closes it from anywhere
+
+function dismissible(sheetId, close) {
+  const sheet = $(sheetId);
+  const card = sheet.querySelector('.sheet-card');
+
+  // The dimmed area closes the sheet only when the press STARTED there, so a
+  // drag that begins inside the sheet and ends outside it never closes.
+  let pressedBackdrop = false;
+  sheet.addEventListener('pointerdown', (event) => { pressedBackdrop = event.target === sheet; });
+  sheet.addEventListener('click', (event) => {
+    if (event.target === sheet && pressedBackdrop) close();
+    pressedBackdrop = false;
+  });
+
+  let startY = 0;
+  let prevY = 0;
+  let prevAt = 0;
+  let speed = 0;
+  let distance = 0;
+  let dragging = false;
+
+  const settle = () => {
+    card.style.transition = '';
+    card.style.transform = '';
+    sheet.style.setProperty('--veil', '1');
+    card.classList.remove('dragging');
+  };
+
+  /* You can pull from the handle at all times. You can pull from the sheet
+     itself when there is nothing to scroll, so the two gestures never fight. */
+  const grips = (target) => {
+    if (target.closest('select, input, textarea, button, a')) return false;
+    if (target.closest('.grabber, .sheet-sport, h2')) return true;
+    return card.scrollHeight <= card.clientHeight + 1 && card.scrollTop === 0;
+  };
+
+  card.addEventListener('pointerdown', (event) => {
+    if (!event.isPrimary || !grips(event.target)) return;
+    dragging = true;
+    distance = 0;
+    speed = 0;
+    startY = event.clientY;
+    prevY = event.clientY;
+    prevAt = event.timeStamp;
+    card.classList.add('dragging');
+  });
+
+  card.addEventListener('pointermove', (event) => {
+    if (!dragging || !event.isPrimary) return;
+    distance = event.clientY - startY;
+
+    // once the pull is unmistakably a pull, take the gesture over completely
+    if (distance > 6 && !card.hasPointerCapture(event.pointerId)) {
+      try { card.setPointerCapture(event.pointerId); } catch { /* older engines */ }
+    }
+    const gap = event.timeStamp - prevAt;
+    if (gap > 0) speed = (event.clientY - prevY) / gap;
+    prevY = event.clientY;
+    prevAt = event.timeStamp;
+
+    if (distance <= 0) {
+      card.style.transform = '';
+      sheet.style.setProperty('--veil', '1');
+      return;
+    }
+    if (event.cancelable) event.preventDefault();
+    card.style.transform = `translateY(${distance}px)`;
+    sheet.style.setProperty('--veil', String(Math.max(0, 1 - distance / 420)));
+  });
+
+  const release = () => {
+    if (!dragging) return;
+    dragging = false;
+    if (distance > PULL_TO_CLOSE || (distance > 24 && speed > FLICK)) {
+      card.classList.remove('dragging');
+      card.style.transition = 'transform .2s var(--ease)';
+      card.style.transform = 'translateY(110%)';
+      setTimeout(() => { settle(); close(); }, 170);
+      return;
+    }
+    settle();
+  };
+
+  card.addEventListener('pointerup', release);
+  card.addEventListener('pointercancel', release);
+}
+
+const closeSportSheet = () => { $('#sport-sheet').hidden = true; editingSportId = null; };
+const closeNewSportSheet = () => { $('#new-sport-sheet').hidden = true; newSport = null; };
+
+dismissible('#match-sheet', closeMatchSheet);
+dismissible('#sport-sheet', closeSportSheet);
+dismissible('#new-sport-sheet', closeNewSportSheet);
+dismissible('#name-sheet', () => { $('#name-sheet').hidden = true; });
+dismissible('#menu', () => { $('#menu').hidden = true; });
+dismissible('#champs-sheet', () => { $('#champs-sheet').hidden = true; });
+dismissible('#confirm-sheet', () => { if (confirmResolve) confirmResolve(false); });
+
+$('#confirm-no').onclick = () => { if (confirmResolve) confirmResolve(false); };
+$('#confirm-yes').onclick = () => { if (confirmResolve) confirmResolve(true); };
+
+$('#champs-close').onclick = () => { $('#champs-sheet').hidden = true; };
+$('#champs-new').onclick = startAnotherChampionship;
+$('#btn-setup-back').onclick = openChampsSheet;
+
 $('#match-cancel').onclick = closeMatchSheet;
-$('#match-sheet').onclick = (event) => { if (event.target.id === 'match-sheet') closeMatchSheet(); };
 $('#match-save').onclick = saveMatchSheet;
 $('#match-clear').onclick = () => {
   const match = matchOf(editing.matchId);
@@ -1488,31 +1797,26 @@ $('#match-clear').onclick = () => {
   render();
   toast('Result cleared');
 };
-$('#match-delete').onclick = () => {
-  if (!confirm('Delete this match?')) return;
-  state.matches = state.matches.filter((m) => m.id !== editing.matchId);
+$('#match-delete').onclick = async () => {
+  const matchId = editing.matchId;
+  if (!(await ask('Delete this match?', { yes: 'Delete it', danger: true }))) return;
+  if (!editing || editing.matchId !== matchId) return;
+  state.matches = state.matches.filter((m) => m.id !== matchId);
   saveState();
   closeMatchSheet();
   render();
   toast('Match deleted');
 };
 
-$('#sport-cancel').onclick = () => { $('#sport-sheet').hidden = true; editingSportId = null; };
-$('#sport-sheet').onclick = (event) => {
-  if (event.target.id === 'sport-sheet') { $('#sport-sheet').hidden = true; editingSportId = null; }
-};
+$('#sport-cancel').onclick = closeSportSheet;
 $('#sport-save').onclick = saveSportSheet;
 $('#sport-delete').onclick = deleteSport;
 $('#sport-time-clear').onclick = () => { $('#sport-time').value = ''; };
 
-$('#new-sport-cancel').onclick = () => { $('#new-sport-sheet').hidden = true; newSport = null; };
-$('#new-sport-sheet').onclick = (event) => {
-  if (event.target.id === 'new-sport-sheet') { $('#new-sport-sheet').hidden = true; newSport = null; }
-};
+$('#new-sport-cancel').onclick = closeNewSportSheet;
 $('#new-sport-save').onclick = addNewSport;
 
 $('#name-cancel').onclick = () => { $('#name-sheet').hidden = true; };
-$('#name-sheet').onclick = (event) => { if (event.target.id === 'name-sheet') $('#name-sheet').hidden = true; };
 $('#name-save').onclick = () => {
   state.name = $('#name-input').value.trim() || DEFAULT_NAME;
   saveState();
@@ -1525,7 +1829,6 @@ $('#btn-share').onclick = share;
 $('#menu-share').onclick = () => { $('#menu').hidden = true; share(); };
 $('#btn-menu').onclick = () => { $('#menu').hidden = false; };
 $('#menu-close').onclick = () => { $('#menu').hidden = true; };
-$('#menu').onclick = (event) => { if (event.target.id === 'menu') $('#menu').hidden = true; };
 
 $('#menu-rename').onclick = () => {
   $('#menu').hidden = true;
@@ -1534,8 +1837,14 @@ $('#menu-rename').onclick = () => {
   $('#name-sheet').hidden = false;
 };
 
-$('#menu-reset').onclick = () => {
-  if (!confirm('Clear every result but keep the players, the sports and the programme?')) return;
+$('#menu-reset').onclick = async () => {
+  $('#menu').hidden = true;
+  const go = await ask('Clear every result?', {
+    body: 'The players, the sports and the programme all stay. Only the scores go.',
+    yes: 'Clear them',
+    danger: true,
+  });
+  if (!go) return;
   state.matches.forEach((m) => {
     m.sides.forEach((side) => { side.score = null; });
     m.done = false;
@@ -1547,25 +1856,37 @@ $('#menu-reset').onclick = () => {
   toast('Results cleared');
 };
 
-$('#menu-rebuild').onclick = () => {
-  if (!confirm('Draw up a fresh programme for every sport? All results are cleared.')) return;
+$('#menu-rebuild').onclick = async () => {
+  $('#menu').hidden = true;
+  const go = await ask('Draw up a fresh programme?', {
+    body: 'Every sport gets new matches, and all results entered so far are cleared.',
+    yes: 'Draw it up',
+    danger: true,
+  });
+  if (!go) return;
   buildAllProgrammes(state);
   saveState();
-  $('#menu').hidden = true;
   view = 'sports';
   openSportId = null;
   render();
   toast('New programme drawn up');
 };
 
+/* Starting another championship no longer costs you this one: it is kept on
+   the phone and you switch back to it from "Your championships".            */
 $('#menu-new').onclick = () => {
-  if (!confirm('Start over? This championship and all its results are deleted.')) return;
-  state = null;
-  localStorage.removeItem(STATE_KEY);
-  draft.step = 1;
-  saveDraft();
   $('#menu').hidden = true;
-  render();
+  startAnotherChampionship();
+};
+
+$('#menu-delete').onclick = async () => {
+  $('#menu').hidden = true;
+  await deleteChampionship(state.id);
+};
+
+$('#menu-champs').onclick = () => {
+  $('#menu').hidden = true;
+  openChampsSheet();
 };
 
 // The nav bar keeps its hairline hidden until the content slides under it.
