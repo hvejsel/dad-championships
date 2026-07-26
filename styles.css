@@ -742,6 +742,13 @@ button { font-family: inherit; }
 }
 .time-chip.set { background: var(--court-wash); color: var(--court-deep); }
 
+/* the one thing the screen most needs to say: nothing waits for anything else */
+.any-order {
+  margin: 14px 2px 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
 /* the times go on as the courts are booked, so the list says what is missing */
 .time-hint {
   margin: 14px 2px 0;
@@ -1224,17 +1231,20 @@ button { font-family: inherit; }
   letter-spacing: -0.3px;
 }
 .fixture.played .res { color: var(--ink); }
-.fixture.now { background: var(--court-wash); }
-.fixture.now .no { color: var(--court); }
-.fixture.now .who { font-weight: 600; }
-.fixture .res em {
-  font-style: normal;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.7px;
-  text-transform: uppercase;
+/* Every match still to play offers the same thing, and none is crowned as the
+   one to do next — the running order belongs to the players, not the app. */
+.fixture .res .go {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--court-wash);
   color: var(--court);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: -0.1px;
+  white-space: nowrap;
 }
+.fixture:active .res .go { background: var(--card-sunk); }
 
 /* ================================== TABS ================================= */
 

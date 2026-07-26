@@ -44,8 +44,8 @@ import {
 
 /* Shown at the foot of the menu. When something is reported as still broken,
    this is the first thing to ask for: it says whether the fix ever arrived. */
-const APP_VERSION = 19;
-const APP_DATE = '25 Jul 2026';
+const APP_VERSION = 20;
+const APP_DATE = '26 Jul 2026';
 
 const LIBRARY_KEY = 'dadchamps.library.v1';
 const LEGACY_STATE_KEYS = ['dadchamps.state.v3', 'dadchamps.state.v2'];
@@ -645,7 +645,6 @@ function sportWinner(sportId) {
 function renderSports() {
   const body = $('#sports-body');
   const { done, total } = progress(state.matches);
-  const upNext = nextUnplayed(state);
   const timed = state.sports.filter((s) => s.time).length;
 
   const header = total
@@ -653,26 +652,31 @@ function renderSports() {
        <p class="eyebrow">${done} of ${total} ${total === 1 ? 'match' : 'matches'} played</p>`
     : '';
 
-  const banner = upNext
+  // The banner tells you what is booked next. It is a reminder of the diary,
+  // not an instruction about what must be played next — nothing waits for
+  // anything else, so a sport with no booked time makes no claim on being
+  // first, and no single match is ever crowned.
+  const booked = orderedSports(state.sports).find(
+    (sport) => sport.time && !sportProgress(state, sport.id).complete
+  );
+  const banner = booked
     ? `<div class="up-next">
-         <span class="label">Next up${
-           sportOf(upNext.sportId).time ? ` — ${escapeHtml(whenLabel(sportOf(upNext.sportId).time))}` : ''
-         }</span>
-         <strong>${escapeHtml(sportName(upNext.sportId))}: ${
-           upNext.sides.length > 2
-             ? 'everybody'
-             : `${escapeHtml(teamText(upNext.sides[0].players))} vs ${escapeHtml(
-                 teamText(upNext.sides[1].players)
-               )}`
-         }</strong>
+         <span class="label">Booked next — ${escapeHtml(whenLabel(booked.time))}</span>
+         <strong>${escapeHtml(booked.name)}</strong>
        </div>`
+    : '';
+
+  const anyOrder = total
+    ? `<p class="hint any-order">Any order. Play the sports and the matches when it suits you and
+         enter each score as it is played — nothing waits for anything else.</p>`
     : '';
 
   const timeHint =
     timed < state.sports.length
       ? `<p class="hint time-hint">${
           state.sports.length - timed === 1 ? '1 sport has' : `${state.sports.length - timed} sports have`
-        } no day and time yet — open the sport to set it. The list sorts itself by when things happen.</p>`
+        } no day and time yet — open the sport to set it. The list sorts itself by when things
+          happen, so you can see what is booked when. A sport with no time is just as playable.</p>`
       : '';
 
   const rows = orderedSports(state.sports)
@@ -711,9 +715,10 @@ function renderSports() {
   body.innerHTML =
     header +
     banner +
+    anyOrder +
     timeHint +
     coverageLine() +
-    `<p class="eyebrow list-label">The sports — tap one for its matches</p>
+    `<p class="eyebrow list-label">The sports — tap any one for its matches</p>
      <div class="sport-list">${rows}</div>
      <button class="add-match" id="btn-add-sport"><span aria-hidden="true">+</span> Add a sport</button>`;
 
@@ -725,10 +730,15 @@ function renderSports() {
 
 /* ======================= ONE SPORT AND ITS MATCHES ===================== */
 
-function fixtureRow(match, upNext) {
-  const isNow = upNext && match.id === upNext.id;
-  const classes = `fixture ${match.done ? 'played' : ''} ${isNow ? 'now' : ''}`;
+/**
+ * One match in the list. Every match still to be played looks the same and
+ * offers the same thing — enter its score. No match is singled out as the one
+ * to play next: the order is yours, not the app's.
+ */
+function fixtureRow(match) {
+  const classes = `fixture ${match.done ? 'played' : ''}`;
   const badge = match.pedro ? '<span class="pedro-badge">Pedro</span>' : '';
+  const openCta = '<span class="go">Enter score</span>';
 
   if (match.sides.length > 2) {
     const winner = winningSide(match);
@@ -736,9 +746,7 @@ function fixtureRow(match, upNext) {
       ? winner
         ? `${escapeHtml(nameOf(winner.players[0]))} ${winner.score}`
         : 'Tied'
-      : isNow
-        ? '<em>Up next</em>'
-        : '—';
+      : openCta;
     return `
       <button class="${classes} ffa" data-match="${match.id}">
         <span class="who">${match.sides
@@ -754,9 +762,7 @@ function fixtureRow(match, upNext) {
   return `
     <button class="${classes}" data-match="${match.id}">
       <span class="who">${teamHtml(a.players)}<br>${teamHtml(b.players)}${badge}</span>
-      <span class="res">${
-        match.done ? `${a.score} – ${b.score}` : isNow ? '<em>Up next</em>' : '—'
-      }</span>
+      <span class="res">${match.done ? `${a.score} – ${b.score}` : openCta}</span>
     </button>`;
 }
 
@@ -766,7 +772,6 @@ function renderSportPage() {
 
   const matches = matchesForSport(state.matches, sport.id);
   const played = matches.filter((m) => m.done).length;
-  const upNext = nextUnplayed(state);
   const sittingOut = playersSittingOut(state, sport.id);
   const pedroHere = matches.filter((m) => m.pedro);
 
@@ -784,10 +789,10 @@ function renderSportPage() {
       </div>
     </div>
 
-    <p class="eyebrow">The matches — tap one to edit it or enter the score</p>
+    <p class="eyebrow">The matches — tap any one to edit it or enter the score</p>
     ${
       matches.length
-        ? `<div class="fixtures">${matches.map((m) => fixtureRow(m, upNext)).join('')}</div>`
+        ? `<div class="fixtures">${matches.map((m) => fixtureRow(m)).join('')}</div>`
         : '<p class="empty">No matches in this sport yet.<br>Add one, or draw a new programme from the menu.</p>'
     }
 
