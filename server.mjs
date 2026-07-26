@@ -59,6 +59,7 @@ async function loadPushKeys() {
 
 
 const fileFor = (code) => join(DATA_DIR, `${code}.json`);
+const binFor = (code) => join(DATA_DIR, `bin-${code}.json`);
 
 async function readChampionship(code) {
   try {
@@ -81,7 +82,7 @@ async function listChampionships() {
   const names = await readdir(DATA_DIR).catch(() => []);
   const out = [];
   for (const name of names) {
-    if (!name.endsWith('.json') || name === 'vapid.json') continue;
+    if (!name.endsWith('.json') || name === 'vapid.json' || name.startsWith('bin-')) continue;
     const champ = await readChampionship(name.slice(0, -5));
     if (!champ) continue;
     out.push({
@@ -155,7 +156,7 @@ export async function sendWhatIsDue(now = Date.now()) {
   const names = await readdir(DATA_DIR).catch(() => []);
   let sent = 0;
   for (const name of names) {
-    if (!name.endsWith('.json') || name === 'vapid.json') continue;
+    if (!name.endsWith('.json') || name === 'vapid.json' || name.startsWith('bin-')) continue;
     const code = name.slice(0, -5);
     const champ = await readChampionship(code);
     if (!champ || !(champ.subscriptions || []).length) continue;
@@ -275,6 +276,30 @@ async function handleApi(req, res, url) {
     return json(res, 200, { championships: await listChampionships() });
   }
 
+  // everything that has been deleted but not destroyed
+  if (url.pathname === '/api/bin' && req.method === 'GET') {
+    const names = await readdir(DATA_DIR).catch(() => []);
+    const binned = [];
+    for (const name of names) {
+      if (!name.startsWith('bin-') || !name.endsWith('.json')) continue;
+      try {
+        const champ = JSON.parse(await readFile(join(DATA_DIR, name), 'utf8'));
+        binned.push({
+          code: champ.code,
+          name: champ.name,
+          players: (champ.players || []).length,
+          played: (champ.matches || []).filter((m) => m.done).length,
+          matches: (champ.matches || []).length,
+          binnedAt: champ.binnedAt || null,
+        });
+      } catch {
+        /* skip anything unreadable */
+      }
+    }
+    binned.sort((a, b) => String(b.binnedAt).localeCompare(String(a.binnedAt)));
+    return json(res, 200, { binned });
+  }
+
   // put a championship online and get its code
   if (url.pathname === '/api/champs' && req.method === 'POST') {
     const body = await readBody(req);
@@ -328,9 +353,36 @@ async function handleApi(req, res, url) {
     return json(res, 200, result);
   }
 
+  // A championship is never destroyed, only put in the bin. Somebody deletes
+  // the wrong one, or a tidy-up goes too wide, and a whole day of scores is
+  // gone with no way back — this makes that survivable.
   if (req.method === 'DELETE') {
-    await inOrder(code, () => unlink(fileFor(code)).catch(() => {}));
-    return json(res, 200, { ok: true });
+    const moved = await inOrder(code, async () => {
+      const champ = await readChampionship(code);
+      if (!champ) return false;
+      champ.binnedAt = new Date().toISOString();
+      await writeFile(binFor(code), JSON.stringify(champ));
+      await unlink(fileFor(code)).catch(() => {});
+      return true;
+    });
+    return json(res, 200, { ok: true, binned: moved });
+  }
+
+  // and taken back out again
+  if (url.pathname === `/api/champs/${code}/restore` && req.method === 'POST') {
+    const back = await inOrder(code, async () => {
+      try {
+        const champ = JSON.parse(await readFile(binFor(code), 'utf8'));
+        delete champ.binnedAt;
+        await writeChampionship(code, champ);
+        await unlink(binFor(code)).catch(() => {});
+        return champ;
+      } catch {
+        return null;
+      }
+    });
+    if (!back) return json(res, 404, { error: 'not in the bin' });
+    return json(res, 200, { championship: publicView(back) });
   }
 
   return json(res, 405, { error: 'not allowed' });

@@ -44,7 +44,7 @@ import {
 
 /* Shown at the foot of the menu. When something is reported as still broken,
    this is the first thing to ask for: it says whether the fix ever arrived. */
-const APP_VERSION = 14;
+const APP_VERSION = 15;
 const APP_DATE = '25 Jul 2026';
 
 const LIBRARY_KEY = 'dadchamps.library.v1';
@@ -1397,6 +1397,16 @@ async function pushAndPull() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ championship: state }),
     });
+    // the shared copy is gone: say so, and keep this phone's own copy, which
+    // is the whole championship and is not the server's to take away
+    if (res.status === 404) {
+      delete state.code;
+      saveState();
+      render();
+      toast('That championship is no longer online — your own copy is safe');
+      clearInterval(syncTimer);
+      return;
+    }
     if (!res.ok) return;
     const { championship } = await res.json();
     if (!championship) return;

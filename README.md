@@ -115,6 +115,18 @@ exactly the phone that needs to join.
 
 Live: <https://dad-championships.sliplane.app>
 
+### Nothing is ever destroyed
+
+Deleting a championship moves it to a bin rather than removing it. `GET
+/api/bin` lists what is in there and `POST /api/champs/:code/restore` brings one
+back whole, results and all. This exists because the opposite was learned the
+hard way: a tidy-up that deleted "everything on the list" took a real
+championship with it, and there was no way back. `test-bin.mjs` covers it.
+
+A phone keeps its own complete copy regardless. If the shared one disappears,
+the app says so and keeps the copy on the phone — the server holds a shared
+copy, never the only one.
+
 There is **no login**. Anyone who has the address sees the list and can enter
 scores. That is the right trade for a family championship and the wrong one for
 anything else — do not put anything on it you would not read out on a court.
@@ -312,6 +324,7 @@ Add it to your home screen and it opens full screen like a normal app.
 | `server.mjs` | Serves the app and holds the shared championships |
 | `test-sync.mjs` | The merge, on its own |
 | `test-online.mjs` | Two phones, one championship |
+| `test-bin.mjs` | A deleted championship can be brought back |
 | `push.mjs` | Signing, sending, and what is due |
 | `test-push.mjs` | The push chain against a fake push service |
 | `test-notify.mjs` | Notifications from the browser's side |
