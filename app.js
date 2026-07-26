@@ -44,7 +44,7 @@ import {
 
 /* Shown at the foot of the menu. When something is reported as still broken,
    this is the first thing to ask for: it says whether the fix ever arrived. */
-const APP_VERSION = 17;
+const APP_VERSION = 18;
 const APP_DATE = '25 Jul 2026';
 
 const LIBRARY_KEY = 'dadchamps.library.v1';
@@ -1377,13 +1377,35 @@ let onlineNote = '';
 let hasServer = false;
 
 /** Whether this copy of the app has a server behind it at all. */
-async function serverIsThere() {
+/* Where the shared championships live. Served from the app's own address when
+   there is a server behind it; otherwise the shared one, so a phone that has
+   the app from the plain address still sees the same list. There is only one
+   list, wherever you opened the app from. */
+let apiBase = null;
+
+const api = (path) => `${apiBase || ''}${path}`;
+
+const reachable = async (base) => {
   try {
-    const res = await fetch('api/health', { cache: 'no-store' });
+    const res = await fetch(`${base}api/health`, { cache: 'no-store' });
     return res.ok;
   } catch {
     return false;
   }
+};
+
+async function serverIsThere() {
+  if (apiBase !== null) return apiBase !== false;
+  if (await reachable('')) {
+    apiBase = '';
+    return true;
+  }
+  if (await reachable(SHARED_APP)) {
+    apiBase = SHARED_APP;
+    return true;
+  }
+  apiBase = false;
+  return false;
 }
 
 const isShared = () => Boolean(state && state.code);
@@ -1392,7 +1414,7 @@ async function pushAndPull() {
   if (!isShared() || syncing || !navigator.onLine) return;
   syncing = true;
   try {
-    const res = await fetch(`api/champs/${state.code}`, {
+    const res = await fetch(api(`api/champs/${state.code}`), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ championship: state }),
@@ -1437,13 +1459,14 @@ function keepInStep() {
 
 async function putOnline() {
   if (!state) return;
+  await serverIsThere();
 
   // It may still carry a code from a championship the server no longer has —
   // deleted, or from another address. Check before refusing, or the only way
   // back online is a dead end that says "already online".
   if (state.code) {
     try {
-      const res = await fetch(`api/champs/${state.code}`, { cache: 'no-store' });
+      const res = await fetch(api(`api/champs/${state.code}`), { cache: 'no-store' });
       if (res.ok) {
         toast('This one is already online');
         return;
@@ -1456,7 +1479,7 @@ async function putOnline() {
   }
 
   try {
-    const res = await fetch('api/champs', {
+    const res = await fetch(api('api/champs'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ championship: state }),
@@ -1476,7 +1499,7 @@ async function putOnline() {
 
 async function openOnline(code) {
   try {
-    const res = await fetch(`api/champs/${code}`, { cache: 'no-store' });
+    const res = await fetch(api(`api/champs/${code}`), { cache: 'no-store' });
     if (!res.ok) throw new Error('gone');
     const { championship } = await res.json();
     const champ = migrateState(championship);
@@ -1541,7 +1564,7 @@ function renderOnlineList(list) {
 async function renderBin() {
   let binned = [];
   try {
-    binned = (await (await fetch('api/bin', { cache: 'no-store' })).json()).binned || [];
+    binned = (await (await fetch(api('api/bin'), { cache: 'no-store' })).json()).binned || [];
   } catch {
     binned = [];
   }
@@ -1567,7 +1590,7 @@ async function renderBin() {
   $$('#bin-list [data-restore]').forEach((btn) => {
     btn.onclick = async () => {
       try {
-        const res = await fetch(`api/champs/${btn.dataset.restore}/restore`, { method: 'POST' });
+        const res = await fetch(api(`api/champs/${btn.dataset.restore}/restore`), { method: 'POST' });
         if (!res.ok) throw new Error('gone');
         const { championship } = await res.json();
         toast(`${championship.name} is back`);
@@ -1580,12 +1603,13 @@ async function renderBin() {
 }
 
 async function openOnlineSheet() {
+  await serverIsThere();
   $('#online-sheet').hidden = false;
   $('#online-put').hidden = !state || Boolean(state.code);
   renderOnlineList();
   renderBin();
   try {
-    const res = await fetch('api/champs', { cache: 'no-store' });
+    const res = await fetch(api('api/champs'), { cache: 'no-store' });
     const { championships } = await res.json();
     renderOnlineList(championships || []);
   } catch {
@@ -1632,7 +1656,7 @@ async function turnNotificationsOn() {
     return;
   }
   try {
-    const { publicKey } = await (await fetch('api/push/key')).json();
+    const { publicKey } = await (await fetch(api('api/push/key'))).json();
     const registration = await navigator.serviceWorker.ready;
     const subscription =
       (await registration.pushManager.getSubscription()) ||
@@ -1640,7 +1664,7 @@ async function turnNotificationsOn() {
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(publicKey),
       }));
-    const res = await fetch('api/push/subscribe', {
+    const res = await fetch(api('api/push/subscribe'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: state.code, subscription: subscription.toJSON() }),
@@ -1658,7 +1682,7 @@ async function turnNotificationsOff() {
   const subscription = await currentSubscription();
   if (subscription) {
     if (isShared()) {
-      await fetch('api/push/unsubscribe', {
+      await fetch(api('api/push/unsubscribe'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: state.code, endpoint: subscription.endpoint }),
@@ -1761,7 +1785,7 @@ async function tellEveryone(message) {
     return;
   }
   try {
-    const res = await fetch(`api/champs/${state.code}/notify`, {
+    const res = await fetch(api(`api/champs/${state.code}/notify`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: state.name, body: text }),
@@ -1786,7 +1810,9 @@ async function tellEveryone(message) {
    a link. The whole championship travels inside it, squeezed down and tacked
    on after the #, which means it never leaves the family chat for a server. */
 
-const SHARED_APP = 'https://dad-championships.sliplane.app/';
+/* Where the shared championships live when this copy has no server of its own.
+   Overridable so a test can point at its own server rather than the real one. */
+const SHARED_APP = window.__SHARED_APP || 'https://dad-championships.sliplane.app/';
 const LINK_MARK = '#c=';
 const LINK_LIMIT = 16000; // beyond this a link stops being reliable to send
 
@@ -1818,35 +1844,6 @@ async function championshipLink(champ, base) {
   return `${at}${LINK_MARK}${packed}`;
 }
 
-/**
- * This copy of the app has no server behind it, so a championship kept here
- * cannot be shared from here — and a phone's store belongs to one address, so
- * the shared app cannot see it either. This carries it across in a link.
- */
-async function moveToSharedApp() {
-  if (!state) return;
-  let link;
-  try {
-    link = await championshipLink(state, SHARED_APP);
-  } catch {
-    toast('Could not build the link');
-    return;
-  }
-  if (link.length > LINK_LIMIT) {
-    toast('Too big for a link — use Save to a file, then Open from a file there');
-    return;
-  }
-  if (navigator.share) {
-    try {
-      await navigator.share({ title: state.name, text: `${state.name} — open it here:`, url: link });
-      return;
-    } catch (error) {
-      if (error && error.name === 'AbortError') return;
-    }
-  }
-  // no share sheet: just go there, carrying the championship with us
-  location.href = link;
-}
 
 /** Send the whole championship to whoever should have it. */
 async function shareChampionship() {
@@ -2242,9 +2239,6 @@ function render() {
   // telling people is only possible once everybody is on the same championship
   $('#menu-tell').hidden = !hasServer || !isShared();
   $('#menu-notify').hidden = !hasServer || !isShared();
-  // this copy has no shared list of its own, so offer the way over to the one
-  // that does — that is what "available for everyone" means from here
-  $('#menu-move').hidden = hasServer || !state;
   $('#btn-back').hidden = view !== 'sport';
 
   renderBrand();
@@ -2726,7 +2720,6 @@ $('#menu-champs').onclick = () => {
 };
 
 $('#menu-online').onclick = () => { $('#menu').hidden = true; openOnlineSheet(); };
-$('#menu-move').onclick = () => { $('#menu').hidden = true; moveToSharedApp(); };
 $('#menu-notify').onclick = () => { $('#menu').hidden = true; openNotifySheet(); };
 $('#notify-close').onclick = () => { $('#notify-sheet').hidden = true; };
 $('#menu-tell').onclick = () => { $('#menu').hidden = true; openTellSheet(); };

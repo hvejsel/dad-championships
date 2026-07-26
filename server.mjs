@@ -205,9 +205,21 @@ export async function sendWhatIsDue(now = Date.now()) {
 
 /* -------------------------------- serving -------------------------------- */
 
+/* The app is also served from a plain address with no server of its own. That
+   copy talks to this one, so the browser needs to be told it may. There is no
+   login and nothing private here — the list is the way in either way — so any
+   origin is allowed rather than a list that would silently break a phone. */
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Max-Age': '86400',
+};
+
 const json = (res, status, body) => {
   const text = JSON.stringify(body);
   res.writeHead(status, {
+    ...CORS,
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(text),
     'Cache-Control': 'no-store',
@@ -466,6 +478,12 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   try {
     if (url.pathname.startsWith('/api/')) {
+      // the browser asking, before a POST or a DELETE, whether it may
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, CORS);
+        res.end();
+        return;
+      }
       await handleApi(req, res, url);
       return;
     }

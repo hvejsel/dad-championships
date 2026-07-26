@@ -105,21 +105,23 @@ its matches.
 Picking a player who is already in the match swaps the two around, which is how
 you rearrange opponents without emptying the match first.
 
-## Two addresses, one of them shared
+## Two addresses, one shared list
 
-The app is served from two places and they do not share a store — a browser
-keeps each address's data separately, so a championship made on one is invisible
-on the other. That is a browser rule, not a choice.
+The app is served from two places:
 
-- <https://hvejsel.github.io/dad-championships/> — the plain copy. No server, so
-  no shared list. Everything works; sharing does not.
-- <https://dad-championships.sliplane.app> — **the one to use.** Same app, with
-  the shared championships behind it.
+- <https://hvejsel.github.io/dad-championships/> — no server of its own
+- <https://dad-championships.sliplane.app> — has one
 
-A championship sitting on the plain copy gets **Make it available to everyone**
-in its menu: it packs the whole thing into a link pointing at the shared
-address, and opening that link brings it across and offers to publish it
-straight away. `test-bridge.mjs` drives exactly that.
+A browser keeps each address's stored championships separate, and that cannot
+be changed. What can be changed is where the *shared* list lives: the copy with
+no server of its own asks the other one, so **sharing works from either
+address** and there is a single list either way. Nobody has to know which
+address they are on, or move anything between them.
+
+The client picks its API by asking: same origin first, then the shared address,
+then no server at all. `window.__SHARED_APP` overrides the second for tests.
+The server answers any origin — there is no login and the list is the way in
+regardless, so an origin allowlist would only break a phone silently.
 
 ## Everybody on one championship
 
@@ -355,7 +357,7 @@ Add it to your home screen and it opens full screen like a normal app.
 | `test-online.mjs` | Two phones, one championship |
 | `test-bin.mjs` | A deleted championship can be brought back |
 | `test-history.mjs` | Older copies are kept and can be put back |
-| `test-bridge.mjs` | Getting a championship onto the shared list |
+| `test-bridge.mjs` | Sharing works from the address with no server |
 | `push.mjs` | Signing, sending, and what is due |
 | `test-push.mjs` | The push chain against a fake push service |
 | `test-notify.mjs` | Notifications from the browser's side |
