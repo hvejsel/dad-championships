@@ -145,7 +145,11 @@ losing all four.
 3. **The bin.** Deleting a championship moves it aside rather than removing it.
    *Championships online* shows what has been deleted with a **Bring back**
    button, so undoing a mistake needs nobody's help. `GET /api/bin` and
-   `POST /api/champs/:code/restore` behind it.
+   `POST /api/champs/:code/restore` behind it. Emptying the bin — the one action
+   that really does destroy something, and only ever something already deleted
+   once — is the bin icon beside each entry, behind a confirmation.
+   `DELETE /api/bin/:code`, which cannot touch a live championship because it
+   only ever opens the bin's own copy.
 4. **Older copies.** Before every write the previous copy is kept, one per five
    minutes, the newest two dozen retained. `GET /api/champs/:code/history` lists
    them and `POST` with `{at}` puts one back — the way out of a bad merge or a

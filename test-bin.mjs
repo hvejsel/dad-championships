@@ -49,5 +49,32 @@ check('restoring something never binned is refused', (await fetch(`${BASE}/api/c
 await fetch(`${BASE}/api/champs/${code}/restore`, { method: 'POST' });
 await fetch(`${BASE}/api/champs/${code}`, { method: 'DELETE' });
 
+
+console.log('\n--- emptying the bin really does destroy it ---');
+const doomed = await post('/api/champs', { championship: champ('Throwaway Cup') });
+// a second save, so it has an older copy to destroy along with it
+await fetch(`${BASE}/api/champs/${doomed.code}`, {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ championship: { ...champ('Throwaway Cup'), id: doomed.championship.id } }),
+});
+await fetch(`${BASE}/api/champs/${doomed.code}`, { method: 'DELETE' });
+check('it is in the bin first', (await get('/api/bin')).body.binned.some((b) => b.code === doomed.code));
+
+const purged = await fetch(`${BASE}/api/bin/${doomed.code}`, { method: 'DELETE' });
+check('emptying it answers ok', purged.status === 200, String(purged.status));
+check('and it is gone from the bin', !(await get('/api/bin')).body.binned.some((b) => b.code === doomed.code));
+check('it cannot be brought back any more', (await fetch(`${BASE}/api/champs/${doomed.code}/restore`, { method: 'POST' })).status === 404);
+check('its older copies went too', (await get(`/api/champs/${doomed.code}/history`)).body.versions.length === 0);
+check('emptying something that is not in the bin is refused',
+  (await fetch(`${BASE}/api/bin/${doomed.code}`, { method: 'DELETE' })).status === 404);
+
+console.log('\n--- and it can never touch one that is live ---');
+const alive = await post('/api/champs', { championship: champ('Still Playing') });
+const tried = await fetch(`${BASE}/api/bin/${alive.code}`, { method: 'DELETE' });
+check('emptying the bin does nothing to a live championship', tried.status === 404, String(tried.status));
+check('which is still there, untouched', (await get(`/api/champs/${alive.code}`)).status === 200);
+await fetch(`${BASE}/api/champs/${alive.code}`, { method: 'DELETE' });
+await fetch(`${BASE}/api/bin/${alive.code}`, { method: 'DELETE' });
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

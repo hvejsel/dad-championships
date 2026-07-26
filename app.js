@@ -44,7 +44,7 @@ import {
 
 /* Shown at the foot of the menu. When something is reported as still broken,
    this is the first thing to ask for: it says whether the fix ever arrived. */
-const APP_VERSION = 18;
+const APP_VERSION = 19;
 const APP_DATE = '25 Jul 2026';
 
 const LIBRARY_KEY = 'dadchamps.library.v1';
@@ -1584,8 +1584,36 @@ async function renderBin() {
           </span>
           <span class="champ-state">Bring back</span>
         </button>
+        <button class="champ-del" data-purge="${escapeHtml(c.code)}"
+                aria-label="Remove ${escapeHtml(c.name)} for good">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+            <path d="M4 6h12M8 6V4.5h4V6M6.5 6l.7 9.5h5.6L13.5 6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
       </div>`)
     .join('');
+
+  // the one action in the app that really does destroy something, so it asks
+  $$('#bin-list [data-purge]').forEach((btn) => {
+    btn.onclick = async () => {
+      const code = btn.dataset.purge;
+      const entry = binned.find((c) => c.code === code);
+      const go = await ask(`Remove ${entry ? entry.name : 'this'} for good?`, {
+        body: 'It is in the bin now, so it can still be brought back. Removing it for good cannot be undone.',
+        yes: 'Remove for good',
+        danger: true,
+      });
+      if (!go) return;
+      try {
+        const res = await fetch(api(`api/bin/${code}`), { method: 'DELETE' });
+        if (!res.ok) throw new Error('gone');
+        toast('Removed for good');
+        openOnlineSheet();
+      } catch {
+        toast('Could not remove it');
+      }
+    };
+  });
 
   $$('#bin-list [data-restore]').forEach((btn) => {
     btn.onclick = async () => {

@@ -362,6 +362,29 @@ async function handleApi(req, res, url) {
     return json(res, 200, { championship: publicView(restored) });
   }
 
+  // emptying the bin: the one place that really does destroy something, and
+  // only ever something already deleted once. A live championship is untouched
+  // because this only ever opens the bin's own copy.
+  if (parts[1] === 'bin' && parts[2] && req.method === 'DELETE') {
+    const target = String(parts[2]).toUpperCase();
+    if (!isCode(target)) return json(res, 400, { error: 'no such championship' });
+    const gone = await inOrder(target, async () => {
+      try {
+        await readFile(binFor(target), 'utf8');
+      } catch {
+        return false; // not in the bin; nothing to destroy
+      }
+      await unlink(binFor(target)).catch(() => {});
+      // its older copies go too, or the space is never actually freed
+      const names = (await readdir(DATA_DIR).catch(() => [])).filter((n) =>
+        n.startsWith(`hist-${target}-`)
+      );
+      for (const name of names) await unlink(join(DATA_DIR, name)).catch(() => {});
+      return true;
+    });
+    return gone ? json(res, 200, { ok: true }) : json(res, 404, { error: 'not in the bin' });
+  }
+
   // everything that has been deleted but not destroyed
   if (url.pathname === '/api/bin' && req.method === 'GET') {
     const names = await readdir(DATA_DIR).catch(() => []);
