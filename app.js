@@ -44,7 +44,7 @@ import {
 
 /* Shown at the foot of the menu. When something is reported as still broken,
    this is the first thing to ask for: it says whether the fix ever arrived. */
-const APP_VERSION = 16;
+const APP_VERSION = 17;
 const APP_DATE = '25 Jul 2026';
 
 const LIBRARY_KEY = 'dadchamps.library.v1';
@@ -1437,10 +1437,24 @@ function keepInStep() {
 
 async function putOnline() {
   if (!state) return;
+
+  // It may still carry a code from a championship the server no longer has —
+  // deleted, or from another address. Check before refusing, or the only way
+  // back online is a dead end that says "already online".
   if (state.code) {
-    toast('This one is already online');
-    return;
+    try {
+      const res = await fetch(`api/champs/${state.code}`, { cache: 'no-store' });
+      if (res.ok) {
+        toast('This one is already online');
+        return;
+      }
+    } catch {
+      toast('No signal — try again when it is back');
+      return;
+    }
+    delete state.code; // the server does not have it; publish it afresh
   }
+
   try {
     const res = await fetch('api/champs', {
       method: 'POST',
@@ -1772,6 +1786,7 @@ async function tellEveryone(message) {
    a link. The whole championship travels inside it, squeezed down and tacked
    on after the #, which means it never leaves the family chat for a server. */
 
+const SHARED_APP = 'https://dad-championships.sliplane.app/';
 const LINK_MARK = '#c=';
 const LINK_LIMIT = 16000; // beyond this a link stops being reliable to send
 
@@ -1797,10 +1812,40 @@ async function unsqueeze(bytes) {
   return new Response(stream).text();
 }
 
-async function championshipLink(champ) {
+async function championshipLink(champ, base) {
   const packed = bytesToBase64Url(await squeeze(JSON.stringify(champ)));
-  const base = location.href.split('#')[0].split('?')[0];
-  return `${base}${LINK_MARK}${packed}`;
+  const at = base || location.href.split('#')[0].split('?')[0];
+  return `${at}${LINK_MARK}${packed}`;
+}
+
+/**
+ * This copy of the app has no server behind it, so a championship kept here
+ * cannot be shared from here — and a phone's store belongs to one address, so
+ * the shared app cannot see it either. This carries it across in a link.
+ */
+async function moveToSharedApp() {
+  if (!state) return;
+  let link;
+  try {
+    link = await championshipLink(state, SHARED_APP);
+  } catch {
+    toast('Could not build the link');
+    return;
+  }
+  if (link.length > LINK_LIMIT) {
+    toast('Too big for a link — use Save to a file, then Open from a file there');
+    return;
+  }
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: state.name, text: `${state.name} — open it here:`, url: link });
+      return;
+    } catch (error) {
+      if (error && error.name === 'AbortError') return;
+    }
+  }
+  // no share sheet: just go there, carrying the championship with us
+  location.href = link;
 }
 
 /** Send the whole championship to whoever should have it. */
@@ -1885,6 +1930,11 @@ async function openFromLink() {
   tableFilter = 'all';
   render();
   toast(`${champ.name} opened`);
+
+  // It came from somewhere else. If this copy has a shared list, that is what
+  // the next tap wants to be — asked for directly rather than read off a flag
+  // that the startup check may not have set yet.
+  if (!state.code && (await serverIsThere())) openOnlineSheet();
   return true;
 }
 
@@ -2192,6 +2242,9 @@ function render() {
   // telling people is only possible once everybody is on the same championship
   $('#menu-tell').hidden = !hasServer || !isShared();
   $('#menu-notify').hidden = !hasServer || !isShared();
+  // this copy has no shared list of its own, so offer the way over to the one
+  // that does — that is what "available for everyone" means from here
+  $('#menu-move').hidden = hasServer || !state;
   $('#btn-back').hidden = view !== 'sport';
 
   renderBrand();
@@ -2673,6 +2726,7 @@ $('#menu-champs').onclick = () => {
 };
 
 $('#menu-online').onclick = () => { $('#menu').hidden = true; openOnlineSheet(); };
+$('#menu-move').onclick = () => { $('#menu').hidden = true; moveToSharedApp(); };
 $('#menu-notify').onclick = () => { $('#menu').hidden = true; openNotifySheet(); };
 $('#notify-close').onclick = () => { $('#notify-sheet').hidden = true; };
 $('#menu-tell').onclick = () => { $('#menu').hidden = true; openTellSheet(); };

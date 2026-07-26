@@ -105,6 +105,22 @@ its matches.
 Picking a player who is already in the match swaps the two around, which is how
 you rearrange opponents without emptying the match first.
 
+## Two addresses, one of them shared
+
+The app is served from two places and they do not share a store — a browser
+keeps each address's data separately, so a championship made on one is invisible
+on the other. That is a browser rule, not a choice.
+
+- <https://hvejsel.github.io/dad-championships/> — the plain copy. No server, so
+  no shared list. Everything works; sharing does not.
+- <https://dad-championships.sliplane.app> — **the one to use.** Same app, with
+  the shared championships behind it.
+
+A championship sitting on the plain copy gets **Make it available to everyone**
+in its menu: it packs the whole thing into a link pointing at the shared
+address, and opening that link brings it across and offers to publish it
+straight away. `test-bridge.mjs` drives exactly that.
+
 ## Everybody on one championship
 
 Served from its own address, the app also keeps the championships everybody
@@ -339,6 +355,7 @@ Add it to your home screen and it opens full screen like a normal app.
 | `test-online.mjs` | Two phones, one championship |
 | `test-bin.mjs` | A deleted championship can be brought back |
 | `test-history.mjs` | Older copies are kept and can be put back |
+| `test-bridge.mjs` | Getting a championship onto the shared list |
 | `push.mjs` | Signing, sending, and what is due |
 | `test-push.mjs` | The push chain against a fake push service |
 | `test-notify.mjs` | Notifications from the browser's side |
