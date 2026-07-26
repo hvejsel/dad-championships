@@ -44,7 +44,7 @@ import {
 
 /* Shown at the foot of the menu. When something is reported as still broken,
    this is the first thing to ask for: it says whether the fix ever arrived. */
-const APP_VERSION = 15;
+const APP_VERSION = 16;
 const APP_DATE = '25 Jul 2026';
 
 const LIBRARY_KEY = 'dadchamps.library.v1';
@@ -1522,10 +1522,54 @@ function renderOnlineList(list) {
   });
 }
 
+/* Nothing on the server is ever thrown away, and getting something back has to
+   be something you can do yourself rather than something you have to ask for. */
+async function renderBin() {
+  let binned = [];
+  try {
+    binned = (await (await fetch('api/bin', { cache: 'no-store' })).json()).binned || [];
+  } catch {
+    binned = [];
+  }
+  $('#bin-section').hidden = binned.length === 0;
+  if (!binned.length) return;
+
+  $('#bin-list').innerHTML = binned
+    .map((c, i) => `
+      <div class="champ-row">
+        <button class="champ-open" data-restore="${escapeHtml(c.code)}">
+          ${crestSvg(c.name, 40, `bin${i}`)}
+          <span class="champ-text">
+            <span class="champ-name">${escapeHtml(c.name)}</span>
+            <span class="champ-meta">${c.players} ${c.players === 1 ? 'player' : 'players'} · ${
+              c.played
+            } of ${c.matches} played${c.binnedAt ? ` · deleted ${escapeHtml(whenLabel(c.binnedAt))}` : ''}</span>
+          </span>
+          <span class="champ-state">Bring back</span>
+        </button>
+      </div>`)
+    .join('');
+
+  $$('#bin-list [data-restore]').forEach((btn) => {
+    btn.onclick = async () => {
+      try {
+        const res = await fetch(`api/champs/${btn.dataset.restore}/restore`, { method: 'POST' });
+        if (!res.ok) throw new Error('gone');
+        const { championship } = await res.json();
+        toast(`${championship.name} is back`);
+        openOnlineSheet();
+      } catch {
+        toast('Could not bring it back');
+      }
+    };
+  });
+}
+
 async function openOnlineSheet() {
   $('#online-sheet').hidden = false;
   $('#online-put').hidden = !state || Boolean(state.code);
   renderOnlineList();
+  renderBin();
   try {
     const res = await fetch('api/champs', { cache: 'no-store' });
     const { championships } = await res.json();

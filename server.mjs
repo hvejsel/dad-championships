@@ -61,6 +61,33 @@ async function loadPushKeys() {
 const fileFor = (code) => join(DATA_DIR, `${code}.json`);
 const binFor = (code) => join(DATA_DIR, `bin-${code}.json`);
 
+/* Older copies of a championship, so a bad merge, a mistaken "clear all
+   results", or a corrupted write is not the end of the day. Phones save often,
+   so a copy is kept per five-minute bucket rather than per write — writing the
+   same bucket twice just replaces it, which bounds the count by itself. */
+const HISTORY_BUCKET_MS = 5 * 60 * 1000;
+const HISTORY_KEEP = 24; // about two hours of play at full tilt
+
+const historyPrefix = (code) => `hist-${code}-`;
+
+async function keepOldCopy(code) {
+  let previous;
+  try {
+    previous = await readFile(fileFor(code), 'utf8');
+  } catch {
+    return; // nothing there yet to keep
+  }
+  const bucket = Math.floor(Date.now() / HISTORY_BUCKET_MS) * HISTORY_BUCKET_MS;
+  await writeFile(join(DATA_DIR, `${historyPrefix(code)}${bucket}.json`), previous).catch(() => {});
+
+  const names = (await readdir(DATA_DIR).catch(() => []))
+    .filter((n) => n.startsWith(historyPrefix(code)))
+    .sort();
+  for (const old of names.slice(0, Math.max(0, names.length - HISTORY_KEEP))) {
+    await unlink(join(DATA_DIR, old)).catch(() => {});
+  }
+}
+
 async function readChampionship(code) {
   try {
     return JSON.parse(await readFile(fileFor(code), 'utf8'));
@@ -70,6 +97,7 @@ async function readChampionship(code) {
 }
 
 async function writeChampionship(code, champ) {
+  await keepOldCopy(code);
   // written beside and moved into place, so a restart mid-write cannot leave
   // half a championship behind
   const temp = `${fileFor(code)}.${process.pid}.tmp`;
@@ -82,7 +110,7 @@ async function listChampionships() {
   const names = await readdir(DATA_DIR).catch(() => []);
   const out = [];
   for (const name of names) {
-    if (!name.endsWith('.json') || name === 'vapid.json' || name.startsWith('bin-')) continue;
+    if (!name.endsWith('.json') || name === 'vapid.json' || name.startsWith('bin-') || name.startsWith('hist-')) continue;
     const champ = await readChampionship(name.slice(0, -5));
     if (!champ) continue;
     out.push({
@@ -156,7 +184,7 @@ export async function sendWhatIsDue(now = Date.now()) {
   const names = await readdir(DATA_DIR).catch(() => []);
   let sent = 0;
   for (const name of names) {
-    if (!name.endsWith('.json') || name === 'vapid.json' || name.startsWith('bin-')) continue;
+    if (!name.endsWith('.json') || name === 'vapid.json' || name.startsWith('bin-') || name.startsWith('hist-')) continue;
     const code = name.slice(0, -5);
     const champ = await readChampionship(code);
     if (!champ || !(champ.subscriptions || []).length) continue;
@@ -274,6 +302,52 @@ async function handleApi(req, res, url) {
   // everybody can see what is being played, so they can pick one
   if (url.pathname === '/api/champs' && req.method === 'GET') {
     return json(res, 200, { championships: await listChampionships() });
+  }
+
+  // the older copies of one championship, newest first
+  if (parts[1] === 'champs' && parts[3] === 'history' && req.method === 'GET') {
+    if (!isCode(code)) return json(res, 404, { error: 'no such championship' });
+    const names = (await readdir(DATA_DIR).catch(() => []))
+      .filter((n) => n.startsWith(`hist-${code}-`))
+      .sort()
+      .reverse();
+    const versions = [];
+    for (const name of names) {
+      try {
+        const champ = JSON.parse(await readFile(join(DATA_DIR, name), 'utf8'));
+        versions.push({
+          at: new Date(Number(name.slice(`hist-${code}-`.length, -5))).toISOString(),
+          name: champ.name,
+          players: (champ.players || []).length,
+          played: (champ.matches || []).filter((m) => m.done).length,
+          matches: (champ.matches || []).length,
+        });
+      } catch {
+        /* skip anything unreadable */
+      }
+    }
+    return json(res, 200, { versions });
+  }
+
+  // put one of those older copies back
+  if (parts[1] === 'champs' && parts[3] === 'history' && req.method === 'POST') {
+    if (!isCode(code)) return json(res, 404, { error: 'no such championship' });
+    const body = await readBody(req);
+    const stamp = Date.parse(body.at);
+    if (Number.isNaN(stamp)) return json(res, 400, { error: 'which copy?' });
+    const file = join(DATA_DIR, `hist-${code}-${stamp}.json`);
+    const restored = await inOrder(code, async () => {
+      try {
+        const champ = JSON.parse(await readFile(file, 'utf8'));
+        const held = await readChampionship(code);
+        await writeChampionship(code, keepServerFields({ ...champ, code }, held));
+        return champ;
+      } catch {
+        return null;
+      }
+    });
+    if (!restored) return json(res, 404, { error: 'no such copy' });
+    return json(res, 200, { championship: publicView(restored) });
   }
 
   // everything that has been deleted but not destroyed
