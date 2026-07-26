@@ -44,7 +44,7 @@ import {
 
 /* Shown at the foot of the menu. When something is reported as still broken,
    this is the first thing to ask for: it says whether the fix ever arrived. */
-const APP_VERSION = 13;
+const APP_VERSION = 14;
 const APP_DATE = '25 Jul 2026';
 
 const LIBRARY_KEY = 'dadchamps.library.v1';
@@ -1527,6 +1527,190 @@ async function openOnlineSheet() {
   }
 }
 
+/* ---------------------------- being told things --------------------------- */
+/* A phone can only be buzzed if the browser has push at all, and on an iPhone
+   it only has push once the app has been added to the home screen — checked,
+   not assumed: in an iPhone browser tab Notification and PushManager are not
+   defined at all. So the app says which of those two is missing rather than
+   offering a switch that quietly does nothing.                              */
+
+const canBeTold = () => 'Notification' in window && 'PushManager' in window;
+const onTheHomeScreen = () =>
+  window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const looksLikeIphone = () => /iPhone|iPad|iPod/.test(navigator.userAgent);
+
+async function currentSubscription() {
+  if (!canBeTold() || !('serviceWorker' in navigator)) return null;
+  const registration = await navigator.serviceWorker.ready.catch(() => null);
+  if (!registration) return null;
+  return registration.pushManager.getSubscription().catch(() => null);
+}
+
+function urlBase64ToUint8Array(base64) {
+  const padded = (base64 + '='.repeat((4 - (base64.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(padded);
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+async function turnNotificationsOn() {
+  if (!isShared()) {
+    toast('Put the championship online first');
+    return;
+  }
+  const allowed = await Notification.requestPermission();
+  if (allowed !== 'granted') {
+    toast('The phone would not allow it — check its settings');
+    renderNotifySheet();
+    return;
+  }
+  try {
+    const { publicKey } = await (await fetch('api/push/key')).json();
+    const registration = await navigator.serviceWorker.ready;
+    const subscription =
+      (await registration.pushManager.getSubscription()) ||
+      (await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      }));
+    const res = await fetch('api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: state.code, subscription: subscription.toJSON() }),
+    });
+    if (!res.ok) throw new Error('refused');
+    toast('This phone will be told');
+  } catch {
+    toast('Could not switch notifications on');
+  }
+  renderNotifySheet();
+  render();
+}
+
+async function turnNotificationsOff() {
+  const subscription = await currentSubscription();
+  if (subscription) {
+    if (isShared()) {
+      await fetch('api/push/unsubscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: state.code, endpoint: subscription.endpoint }),
+      }).catch(() => {});
+    }
+    await subscription.unsubscribe().catch(() => {});
+  }
+  toast('This phone will be left in peace');
+  renderNotifySheet();
+  render();
+}
+
+async function renderNotifySheet() {
+  const state$ = $('#notify-state');
+  const body = $('#notify-body');
+
+  if (!isShared()) {
+    state$.textContent = 'Notifications belong to a championship that is online, so put this one online first.';
+    body.innerHTML = '';
+    return;
+  }
+
+  // An iPhone only has push once the app is on the home screen. Say so plainly
+  // rather than offering a switch that cannot work.
+  if (!canBeTold()) {
+    if (looksLikeIphone() && !onTheHomeScreen()) {
+      state$.textContent = 'On an iPhone this only works once the app is on your home screen.';
+      body.innerHTML = `
+        <ol class="steps">
+          <li>Tap the share button at the bottom of Safari.</li>
+          <li>Choose <strong>Add to Home Screen</strong>.</li>
+          <li>Open the app from the home screen and come back here.</li>
+        </ol>`;
+      return;
+    }
+    state$.textContent = 'This browser cannot show notifications at all.';
+    body.innerHTML = '';
+    return;
+  }
+
+  const subscription = await currentSubscription();
+  const on = Boolean(subscription);
+
+  // A browser can report "blocked" from an old answer, or from a setting that
+  // has since been changed. Asking again costs nothing and is refused in
+  // silence if it really is blocked, so the switch stays — a dead end with no
+  // button is worse than a button that says no.
+  const blocked = !on && Notification.permission === 'denied';
+
+  state$.textContent = on
+    ? 'This phone gets a message when a sport is due, and when one of you tells everybody something.'
+    : blocked
+      ? "This phone has notifications switched off for the app. Try the button; if nothing happens, allow them in the phone's own settings."
+      : 'Switch on to get a message when a sport is due, and when one of you tells everybody something.';
+  body.innerHTML = `<button class="${on ? 'danger' : 'primary'} wide" id="notify-toggle">${
+    on ? 'Turn notifications off' : 'Turn notifications on'
+  }</button>`;
+  $('#notify-toggle').onclick = on ? turnNotificationsOff : turnNotificationsOn;
+}
+
+async function openNotifySheet() {
+  $('#notify-sheet').hidden = false;
+  await renderNotifySheet();
+}
+
+/* ------------------------ telling everybody something --------------------- */
+
+const QUICK_MESSAGES = () => {
+  const upNext = state && nextUnplayed(state);
+  const out = ['We are starting now', 'Five minutes'];
+  if (upNext) {
+    const who =
+      upNext.sides.length > 2
+        ? 'everybody'
+        : `${teamText(upNext.sides[0].players)} v ${teamText(upNext.sides[1].players)}`;
+    out.unshift(`${sportName(upNext.sportId)} is up: ${who}`);
+  }
+  return out;
+};
+
+function openTellSheet() {
+  if (!isShared()) {
+    toast('Put the championship online first');
+    return;
+  }
+  $('#tell-text').value = '';
+  $('#tell-quick').innerHTML = QUICK_MESSAGES()
+    .map((m) => `<button class="ghost wide" data-say="${escapeHtml(m)}">${escapeHtml(m)}</button>`)
+    .join('');
+  $$('#tell-quick [data-say]').forEach((btn) => {
+    btn.onclick = () => tellEveryone(btn.dataset.say);
+  });
+  $('#tell-sheet').hidden = false;
+}
+
+async function tellEveryone(message) {
+  const text = String(message || '').trim();
+  if (!text) {
+    toast('Say something first');
+    return;
+  }
+  try {
+    const res = await fetch(`api/champs/${state.code}/notify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: state.name, body: text }),
+    });
+    if (!res.ok) throw new Error('refused');
+    const { delivered, phones } = await res.json();
+    $('#tell-sheet').hidden = true;
+    toast(
+      phones === 0
+        ? 'Nobody has notifications on yet'
+        : `Sent to ${delivered} ${delivered === 1 ? 'phone' : 'phones'}`
+    );
+  } catch {
+    toast('Could not send it');
+  }
+}
+
 /* ====================== A CHAMPIONSHIP IN A LINK ======================== */
 /* A phone browser cannot write a file by itself — Safari has no such thing, on
    the phone or the Mac; only Chrome on a computer can. So the way to hand a
@@ -1951,6 +2135,9 @@ function render() {
   });
   $('#tabs').hidden = setupMode;
   $('#btn-menu').hidden = setupMode;
+  // telling people is only possible once everybody is on the same championship
+  $('#menu-tell').hidden = !hasServer || !isShared();
+  $('#menu-notify').hidden = !hasServer || !isShared();
   $('#btn-back').hidden = view !== 'sport';
 
   renderBrand();
@@ -2287,6 +2474,8 @@ dismissible('#menu', () => { $('#menu').hidden = true; });
 dismissible('#champs-sheet', () => { $('#champs-sheet').hidden = true; });
 dismissible('#share-sheet', () => { $('#share-sheet').hidden = true; });
 dismissible('#online-sheet', () => { $('#online-sheet').hidden = true; });
+dismissible('#notify-sheet', () => { $('#notify-sheet').hidden = true; });
+dismissible('#tell-sheet', () => { $('#tell-sheet').hidden = true; });
 dismissible('#players-sheet', () => { $('#players-sheet').hidden = true; render(); });
 dismissible('#confirm-sheet', () => { if (confirmResolve) confirmResolve(false); });
 
@@ -2430,6 +2619,11 @@ $('#menu-champs').onclick = () => {
 };
 
 $('#menu-online').onclick = () => { $('#menu').hidden = true; openOnlineSheet(); };
+$('#menu-notify').onclick = () => { $('#menu').hidden = true; openNotifySheet(); };
+$('#notify-close').onclick = () => { $('#notify-sheet').hidden = true; };
+$('#menu-tell').onclick = () => { $('#menu').hidden = true; openTellSheet(); };
+$('#tell-cancel').onclick = () => { $('#tell-sheet').hidden = true; };
+$('#tell-send').onclick = () => tellEveryone($('#tell-text').value);
 $('#online-close').onclick = () => { $('#online-sheet').hidden = true; };
 $('#online-refresh').onclick = () => openOnlineSheet();
 $('#online-put').onclick = putOnline;

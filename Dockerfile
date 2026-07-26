@@ -1,9 +1,14 @@
 # The app and the shared championships, in one small container.
-# No build step and no dependencies — the app is static files and the server is
-# one file of Node built-ins.
+# The app is static files; the server is Node built-ins plus web-push, which
+# does the signing and encryption a push message needs.
 FROM node:22-alpine
 
 WORKDIR /app
+
+# dependencies first, so a change to the app does not rebuild them
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
 COPY . .
 
 ENV PORT=3000

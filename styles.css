@@ -1580,3 +1580,19 @@ button { font-family: inherit; }
   font-weight: 700;
   letter-spacing: 0.3px;
 }
+
+/* --------------------------- being told things --------------------------- */
+
+.steps {
+  margin: 0 0 18px;
+  padding-left: 22px;
+  color: var(--ink-soft);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.steps li { margin-bottom: 6px; }
+.steps strong { color: var(--ink); }
+
+/* the things you most often need to say, one tap each */
+.tell-quick { margin-bottom: 20px; }
+.tell-quick .ghost { margin-top: 8px; text-align: center; }

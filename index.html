@@ -241,6 +241,8 @@
     <div class="grabber"></div>
     <h2>Championship</h2>
     <button class="primary wide" id="menu-online" hidden>Championships online</button>
+    <button class="ghost wide" id="menu-tell" hidden>Tell everyone</button>
+    <button class="ghost wide" id="menu-notify" hidden>Notifications</button>
     <button class="ghost wide" id="menu-share-champ">Send the championship</button>
     <button class="ghost wide" id="menu-champs">Your championships</button>
     <button class="ghost wide" id="menu-export">Save to a file</button>
@@ -256,6 +258,34 @@
     <button class="ghost wide" id="menu-close">Close</button>
     <button class="link-btn wide-link" id="menu-update">Update the app</button>
     <p class="version" id="app-version"></p>
+  </div>
+</div>
+
+<!-- getting told when something is happening -->
+<div id="notify-sheet" class="sheet" hidden>
+  <div class="sheet-card">
+    <div class="grabber"></div>
+    <h2>Notifications</h2>
+    <p class="hint" id="notify-state"></p>
+    <div id="notify-body"></div>
+    <button class="ghost wide" id="notify-close">Close</button>
+  </div>
+</div>
+
+<!-- one of you telling the others to get moving -->
+<div id="tell-sheet" class="sheet" hidden>
+  <div class="sheet-card">
+    <div class="grabber"></div>
+    <h2>Tell everyone</h2>
+    <p class="hint">This buzzes every phone that has notifications on for this championship.</p>
+    <div id="tell-quick" class="tell-quick"></div>
+    <p class="eyebrow">Or say it yourself</p>
+    <input type="text" id="tell-text" class="sheet-input" placeholder="We are starting on court 2"
+           autocapitalize="sentences" autocomplete="off" maxlength="200">
+    <div class="row-btns">
+      <button class="ghost" id="tell-cancel">Cancel</button>
+      <button class="primary" id="tell-send">Send it</button>
+    </div>
   </div>
 </div>
 

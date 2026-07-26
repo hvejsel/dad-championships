@@ -142,6 +142,43 @@ every few seconds, so a score entered on a court with no signal is not lost —
 it arrives late. `test-sync.mjs` covers the merge alone; `test-online.mjs`
 drives two real phones through one championship.
 
+## Getting told when something is happening
+
+**Notifications** in the menu buzzes a phone when a sport's booked time
+arrives, and when one of you uses **Tell everyone** — a free line of text, or
+one tap on "Padel is up: Jesper v Far", which the app fills in from whatever
+match is next.
+
+The due-time check runs on the server, once a minute, because a phone in a
+pocket with the screen off is not running anything. Each sport is announced
+once and the championship remembers that, so a restart cannot send it twice.
+
+### What actually works where
+
+An **iPhone has no push in a browser tab at all** — `Notification` and
+`PushManager` are simply not defined, checked rather than assumed. It works
+only once the app has been added to the home screen. The app detects that case
+and shows the three steps instead of offering a switch that would quietly do
+nothing.
+
+A phone that has notifications switched off still gets the switch, because a
+browser can report "blocked" from an old answer; asking again costs nothing and
+is refused in silence if it really is blocked. A dead end with no button is
+worse than a button that comes back and says no.
+
+### What is kept, and what is never handed out
+
+A subscription is the right to make somebody's phone buzz, so it stays on the
+server: `GET /api/champs/:code` strips it, and a phone's own copy — which has
+no subscriptions in it — cannot wipe the list when it saves. The signing keys
+are made once and kept on the disk; new keys would silently invalidate every
+subscription already out there. A phone that has uninstalled the app answers
+410 and is forgotten rather than retried forever.
+
+`test-push.mjs` stands up a fake push service over TLS and checks the messages
+leave signed and encrypted; `test-notify.mjs` drives the browser side, iPhone
+case included.
+
 ## A championship in a link
 
 **Send the championship** puts the whole thing — field, programme, every result
@@ -255,6 +292,7 @@ node test-mobile.mjs          # mobile tests (needs playwright + webkit)
 node test-update.mjs          # the self-update path
 node test-keyboard.mjs        # nothing hides behind the on-screen keyboard
 node test-sync.mjs            # the merge
+node test-push.mjs            # push signing, sending and due times
 DATA_DIR=/tmp/d PORT=8788 node server.mjs   # the server; then: node test-online.mjs
 node tools/gen-icons.mjs      # regenerate the app icons
 ```
@@ -274,5 +312,8 @@ Add it to your home screen and it opens full screen like a normal app.
 | `server.mjs` | Serves the app and holds the shared championships |
 | `test-sync.mjs` | The merge, on its own |
 | `test-online.mjs` | Two phones, one championship |
+| `push.mjs` | Signing, sending, and what is due |
+| `test-push.mjs` | The push chain against a fake push service |
+| `test-notify.mjs` | Notifications from the browser's side |
 | `test-keyboard.mjs` | Nothing hides behind the on-screen keyboard |
 | `sw.js` | Offline cache |
