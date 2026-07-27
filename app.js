@@ -38,14 +38,15 @@ import {
   standings,
   nextUnplayed,
   progress,
+  scoresFrom,
   migrateState,
   STATE_VERSION,
 } from './tournament.js';
 
 /* Shown at the foot of the menu. When something is reported as still broken,
    this is the first thing to ask for: it says whether the fix ever arrived. */
-const APP_VERSION = 20;
-const APP_DATE = '26 Jul 2026';
+const APP_VERSION = 21;
+const APP_DATE = '27 Jul 2026';
 
 const LIBRARY_KEY = 'dadchamps.library.v1';
 const LEGACY_STATE_KEYS = ['dadchamps.state.v3', 'dadchamps.state.v2'];
@@ -738,7 +739,11 @@ function renderSports() {
 function fixtureRow(match) {
   const classes = `fixture ${match.done ? 'played' : ''}`;
   const badge = match.pedro ? '<span class="pedro-badge">Pedro</span>' : '';
-  const openCta = '<span class="go">Enter score</span>';
+  // Half a result is shown as half a result. A score somebody typed is never
+  // hidden behind "Enter score" as though it had never been entered.
+  const part = (side) => (side.score === null ? '?' : side.score);
+  const started = !match.done && match.sides.some((side) => side.score !== null);
+  const cta = (text) => `<span class="go ${started ? 'part' : ''}">${text}</span>`;
 
   if (match.sides.length > 2) {
     const winner = winningSide(match);
@@ -746,12 +751,12 @@ function fixtureRow(match) {
       ? winner
         ? `${escapeHtml(nameOf(winner.players[0]))} ${winner.score}`
         : 'Tied'
-      : openCta;
+      : cta(started ? 'Finish score' : 'Enter score');
     return `
       <button class="${classes} ffa" data-match="${match.id}">
         <span class="who">${match.sides
           .map((side) => `${escapeHtml(nameOf(side.players[0]))}${
-            match.done ? ` <b>${side.score}</b>` : ''
+            match.done || started ? ` <b>${part(side)}</b>` : ''
           }`)
           .join(' <span class="and">·</span> ')}${badge}</span>
         <span class="res">${result}</span>
@@ -762,7 +767,13 @@ function fixtureRow(match) {
   return `
     <button class="${classes}" data-match="${match.id}">
       <span class="who">${teamHtml(a.players)}<br>${teamHtml(b.players)}${badge}</span>
-      <span class="res">${match.done ? `${a.score} – ${b.score}` : openCta}</span>
+      <span class="res">${
+        match.done
+          ? `${a.score} – ${b.score}`
+          : started
+            ? cta(`${part(a)} – ${part(b)}`)
+            : cta('Enter score')
+      }</span>
     </button>`;
 }
 
@@ -829,11 +840,17 @@ function renderSportPage() {
 
 /* =========================== THE MATCH EDITOR ========================== */
 
+/* The field is text, not a number field, on purpose. A number field hands back
+   an empty string for anything it cannot parse, so a stray character turns a
+   typed score into "nothing was entered" with no way to tell the difference.
+   Text always gives back what is in it, and everything but digits is stripped
+   as it is typed. */
 function scoreStepper(key, value) {
   return `
     <div class="score-control">
       <button class="round-btn" data-score="${key}" data-delta="-1" aria-label="Lower">−</button>
-      <input id="score-${key}" type="number" inputmode="numeric" pattern="[0-9]*" min="0"
+      <input id="score-${key}" data-score-for="${key}" type="text" inputmode="numeric"
+             pattern="[0-9]*" maxlength="4" autocomplete="off"
              value="${value === null || value === undefined ? '' : value}" placeholder="0">
       <button class="round-btn" data-score="${key}" data-delta="1" aria-label="Raise">+</button>
     </div>`;
@@ -949,7 +966,8 @@ function renderMatchSheet() {
   });
 
   const match = matchOf(editing.matchId);
-  $('#match-clear').hidden = !match.done;
+  // half a result is still a result to wipe, so the button is there for it too
+  $('#match-clear').hidden = !match.sides.some((side) => side.score !== null);
 }
 
 function pedroPickerHtml() {
@@ -990,20 +1008,25 @@ function saveMatchSheet() {
     return;
   }
 
-  // A match counts as played once every side has a score; leave it open if not.
-  const allScored = sides.every((side) => String(side.score ?? '').trim() !== '');
-  match.sides = sides.map((side) => ({
-    players: side.players.slice(),
-    score: allScored ? Math.max(0, Math.round(Number(side.score) || 0)) : null,
-  }));
-  match.done = allScored;
+  // Every score that was typed is kept, side by side. A match with one side
+  // still blank used to throw away the other side's score too and close with a
+  // cheerful message — the score was gone and nothing said so. Nothing typed is
+  // ever discarded now, and the match simply stays open until the rest arrives.
+  const entered = scoresFrom(sides);
+  match.sides = entered.sides;
+  match.done = entered.done;
+  const missing = match.sides.filter((side) => side.score === null);
   match.pedro = editing.pedro;
   touchMatch(match);
 
   saveState();
   closeMatchSheet();
   render();
-  toast(allScored ? 'Result saved' : 'Match saved');
+
+  if (match.done) toast('Result saved');
+  else if (missing.length === match.sides.length) toast('Saved — no score entered yet');
+  else if (missing.length === 1) toast(`Saved. ${teamText(missing[0].players)} has no score yet`);
+  else toast(`Saved. ${missing.length} still have no score`);
 }
 
 function closeMatchSheet() {
@@ -2442,6 +2465,16 @@ document.addEventListener('click', (event) => {
 });
 
 document.addEventListener('input', (event) => {
+  // A score belongs to the editor the moment it is typed, not when Save is
+  // pressed, so a redraw of the sheet can never lose a digit somebody entered.
+  const scoreInput = event.target.closest('#match-body input[data-score-for]');
+  if (scoreInput) {
+    const digits = scoreInput.value.replace(/[^0-9]/g, '').slice(0, 4);
+    if (digits !== scoreInput.value) scoreInput.value = digits;
+    if (editing) readMatchSheet();
+    return;
+  }
+
   const nameInput = event.target.closest('input[data-kind]');
   if (nameInput) {
     const index = Number(nameInput.dataset.index);

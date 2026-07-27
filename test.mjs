@@ -47,6 +47,7 @@ import {
   standings,
   nextUnplayed,
   progress,
+  scoresFrom,
   migrateState,
   STATE_VERSION,
 } from './tournament.js';
@@ -713,6 +714,41 @@ group('every element of a match can be edited', () => {
   let threw = false;
   try { createMatch(s, 's1', [['p2'], ['p2']]); } catch { threw = true; }
   check('an impossible match is refused', threw);
+});
+
+group('a typed score is kept, whatever else is missing', () => {
+  const two = (a, b) => [{ players: ['p1'], score: a }, { players: ['p2'], score: b }];
+
+  const both = scoresFrom(two('11', '7'));
+  check('a full result is played', both.done && both.sides[0].score === 11 && both.sides[1].score === 7);
+
+  // the bug this exists for: one side blank used to throw the other away too
+  const half = scoresFrom(two('11', ''));
+  check('the side that was typed keeps its score', half.sides[0].score === 11);
+  check('the side left blank stays blank', half.sides[1].score === null);
+  check('and the match stays open', !half.done);
+
+  const none = scoresFrom(two('', ''));
+  check('nothing typed is nothing saved', none.sides.every((s) => s.score === null) && !none.done);
+
+  const nought = scoresFrom(two('0', '2'));
+  check('nought is a score, not a blank', nought.done && nought.sides[0].score === 0);
+
+  const messy = scoresFrom(two(' 11 ', '7pts'));
+  check('stray characters do not lose the number', messy.done && messy.sides[0].score === 11 && messy.sides[1].score === 7);
+
+  const rubbish = scoresFrom(two('abc', '7'));
+  check('a field with no digits at all is blank, not nought', rubbish.sides[0].score === null && !rubbish.done);
+
+  const many = scoresFrom([
+    { players: ['p1'], score: '5' },
+    { players: ['p2'], score: '' },
+    { players: ['p3'], score: '9' },
+  ]);
+  check('all vs all keeps every score that is in', many.sides[0].score === 5 && many.sides[2].score === 9 && !many.done);
+
+  const negative = scoresFrom(two('-4', '7'));
+  check('a score never goes below nought', negative.sides[0].score === 4);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

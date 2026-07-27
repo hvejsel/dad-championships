@@ -671,6 +671,27 @@ export function progress(matches) {
   return { done, total: matches.length };
 }
 
+/**
+ * What a match looks like once somebody has typed into the editor.
+ *
+ * The rule is: keep everything that was typed. A side left blank is blank, and
+ * the match stays open until the rest arrives — but a score anybody entered is
+ * never thrown away because another side is still missing, and a blank field is
+ * never mistaken for a nought. `sides` come in as whatever the fields held, so
+ * strings, blanks and rubbish are all expected here.
+ */
+export function scoresFrom(sides) {
+  const out = sides.map((side) => {
+    const raw = String(side.score ?? '').trim();
+    const digits = raw.replace(/[^0-9]/g, '');
+    return {
+      players: side.players.slice(),
+      score: digits === '' ? null : Math.max(0, Math.round(Number(digits))),
+    };
+  });
+  return { sides: out, done: out.every((side) => side.score !== null) };
+}
+
 /* ------------------------------- storage -------------------------------- */
 
 /**

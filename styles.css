@@ -1245,6 +1245,12 @@ button { font-family: inherit; }
   white-space: nowrap;
 }
 .fixture:active .res .go { background: var(--card-sunk); }
+/* a result that is half in: what was typed is on the row, not hidden away */
+.fixture .res .go.part {
+  background: var(--brass-wash, var(--court-wash));
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
 
 /* ================================== TABS ================================= */
 
