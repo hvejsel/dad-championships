@@ -45,8 +45,8 @@ import {
 
 /* Shown at the foot of the menu. When something is reported as still broken,
    this is the first thing to ask for: it says whether the fix ever arrived. */
-const APP_VERSION = 21;
-const APP_DATE = '27 Jul 2026';
+const APP_VERSION = 22;
+const APP_DATE = '28 Jul 2026';
 
 const LIBRARY_KEY = 'dadchamps.library.v1';
 const LEGACY_STATE_KEYS = ['dadchamps.state.v3', 'dadchamps.state.v2'];
@@ -1068,6 +1068,50 @@ function openSportSheet(sportId) {
   $('#sport-sheet').hidden = false;
 }
 
+/**
+ * Fresh matches for one sport, the old ones gone for good. The removal has to
+ * be REMEMBERED: a shared championship lives on two phones and a server, and a
+ * match that is merely dropped here comes straight back from the copy that
+ * still has it — which is what made a new game type look like it never took.
+ * The new matches are stamped too, so they are not mistaken for stale ones.
+ */
+function redrawSport(sport) {
+  const old = matchesForSport(state.matches, sport.id);
+  rememberRemoved(...old.map((m) => m.id));
+  state.matches = state.matches.filter((m) => m.sportId !== sport.id);
+  const drawn = buildProgramme(state, sport.id);
+  drawn.forEach(touchMatch);
+  state.matches.push(...drawn);
+}
+
+/**
+ * The way out when a sport's matches no longer fit it — a leftover from the
+ * merge above, or simply a draw you do not like. Only this sport is touched.
+ */
+async function redrawSportSheet() {
+  const sport = sportOf(editingSportId);
+  const finished = matchesForSport(state.matches, sport.id).filter((m) => m.done).length;
+  const go = await ask(`Draw new matches for ${sport.name}?`, {
+    body: finished
+      ? `${sport.name} gets a fresh set of matches for ${formatLabel(sport.format)}, and the ${finished} ${
+          finished === 1 ? 'result' : 'results'
+        } already entered for it are lost. Every other sport keeps its matches.`
+      : `${sport.name} gets a fresh set of matches for ${formatLabel(
+          sport.format
+        )}. Every other sport keeps its matches.`,
+    yes: 'Draw them',
+    danger: finished > 0,
+  });
+  if (!go) return;
+
+  redrawSport(sport);
+  touchField();
+  saveState();
+  closeSportSheet();
+  render();
+  toast(`New matches for ${sport.name}`);
+}
+
 async function saveSportSheet() {
   const sport = sportOf(editingSportId);
   const name = $('#sport-name').value.trim() || sport.name;
@@ -1096,8 +1140,7 @@ async function saveSportSheet() {
     if (!go) return;
 
     sport.format = format;
-    state.matches = state.matches.filter((m) => m.sportId !== sport.id);
-    state.matches.push(...buildProgramme(state, sport.id));
+    redrawSport(sport);
   }
   sport.name = name;
   sport.scoring = scoring;
@@ -2701,6 +2744,7 @@ $('#match-delete').onclick = async () => {
 
 $('#sport-cancel').onclick = closeSportSheet;
 $('#sport-save').onclick = saveSportSheet;
+$('#sport-redraw').onclick = redrawSportSheet;
 $('#sport-delete').onclick = deleteSport;
 // an empty time field reads the same whether the tap worked or not, so say so
 $('#sport-time-clear').onclick = () => { $('#sport-time').value = ''; toast('Time cleared — Save to keep it'); };

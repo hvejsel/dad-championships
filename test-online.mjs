@@ -112,7 +112,7 @@ const run = async () => {
     const box = await fixture.boundingBox();
     await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForTimeout(400);
-    const nums = page.locator('#match-body input[type=number]');
+    const nums = page.locator('#match-body input[data-score-for]');
     await nums.nth(0).fill(String(home));
     await nums.nth(1).fill(String(away));
     await tap(page, '#match-save');
